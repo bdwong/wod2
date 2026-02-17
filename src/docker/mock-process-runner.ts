@@ -5,9 +5,15 @@ interface MockResponse {
   result: ProcessResult;
 }
 
+export interface RecordedCall {
+  command: string[];
+  options?: { cwd?: string };
+}
+
 export class MockProcessRunner implements ProcessRunner {
   private responses: MockResponse[] = [];
   public calls: string[][] = [];
+  public recordedCalls: RecordedCall[] = [];
 
   addResponse(commandPrefix: string[], result: Partial<ProcessResult>): void {
     this.responses.push({
@@ -20,8 +26,9 @@ export class MockProcessRunner implements ProcessRunner {
     });
   }
 
-  run(command: string[]): ProcessResult {
+  run(command: string[], options?: { cwd?: string }): ProcessResult {
     this.calls.push([...command]);
+    this.recordedCalls.push({ command: [...command], options });
     const match = this.responses.find((r) =>
       r.commandPrefix.every((part, i) => command[i] === part),
     );
