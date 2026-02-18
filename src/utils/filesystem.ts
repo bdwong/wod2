@@ -7,6 +7,8 @@ export interface Filesystem {
   ensureDirectory(dirPath: string): void;
   /** Returns true if the path exists and is a directory */
   isDirectory(dirPath: string): boolean;
+  /** Writes content to a file, creating parent directories as needed */
+  writeFile(filePath: string, content: string): void;
 }
 
 export class RealFilesystem implements Filesystem {
@@ -32,5 +34,9 @@ export class RealFilesystem implements Filesystem {
     } catch {
       return false;
     }
+  }
+
+  writeFile(filePath: string, content: string): void {
+    fs.writeFileSync(filePath, content, "utf-8");
   }
 }

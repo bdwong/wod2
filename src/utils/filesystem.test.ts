@@ -74,4 +74,19 @@ describe("RealFilesystem", () => {
       expect(filesystem.isDirectory(path.join(tmpDir, "nope"))).toBe(false);
     });
   });
+
+  describe("writeFile", () => {
+    test("writes content to a file", () => {
+      const filePath = path.join(tmpDir, "test.txt");
+      filesystem.writeFile(filePath, "hello world");
+      expect(fs.readFileSync(filePath, "utf-8")).toBe("hello world");
+    });
+
+    test("overwrites existing file", () => {
+      const filePath = path.join(tmpDir, "test.txt");
+      fs.writeFileSync(filePath, "old content");
+      filesystem.writeFile(filePath, "new content");
+      expect(fs.readFileSync(filePath, "utf-8")).toBe("new content");
+    });
+  });
 });

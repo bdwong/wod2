@@ -5,6 +5,7 @@ export class MockFilesystem implements Filesystem {
   private existingDirs: Set<string> = new Set();
   private existingDirsConfigured = false;
   public ensuredDirs: string[] = [];
+  public writtenFiles: Map<string, string> = new Map();
 
   setSubdirectories(dirPath: string, names: string[]): void {
     this.directories.set(dirPath, names);
@@ -26,5 +27,9 @@ export class MockFilesystem implements Filesystem {
   isDirectory(dirPath: string): boolean {
     if (!this.existingDirsConfigured) return true;
     return this.existingDirs.has(dirPath);
+  }
+
+  writeFile(filePath: string, content: string): void {
+    this.writtenFiles.set(filePath, content);
   }
 }

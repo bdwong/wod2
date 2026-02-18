@@ -20,6 +20,26 @@ export function containerIsRunning(
   return result.exitCode === 0 && result.stdout.trim().length > 0;
 }
 
+export function containerExists(
+  runner: ProcessRunner,
+  instanceName: string,
+  service: string,
+): boolean {
+  const result = runner.run([
+    "docker",
+    "container",
+    "ls",
+    "-aqf",
+    `name=${instanceName}-${service}-`,
+  ]);
+  return result.exitCode === 0 && result.stdout.trim().length > 0;
+}
+
+export function volumeExists(runner: ProcessRunner, volumeName: string): boolean {
+  const result = runner.run(["docker", "volume", "ls", "-qf", `name=${volumeName}`]);
+  return result.exitCode === 0 && result.stdout.trim().length > 0;
+}
+
 export function querySiteUrl(runner: ProcessRunner, instanceName: string): string | null {
   // Find the running WordPress container
   const containerLsResult = runner.run([

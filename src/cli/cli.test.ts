@@ -18,4 +18,11 @@ describe("createProgram", () => {
     const lsCommand = program.commands.find((cmd) => cmd.name() === "ls");
     expect(lsCommand?.description()).toBeTruthy();
   });
+
+  test("has a create subcommand", () => {
+    const program = createProgram();
+    const createCommand = program.commands.find((cmd) => cmd.name() === "create");
+    expect(createCommand).toBeDefined();
+    expect(createCommand?.description()).toBeTruthy();
+  });
 });

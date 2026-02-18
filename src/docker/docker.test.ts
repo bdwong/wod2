@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { containerIsRunning, dockerIsRunning, querySiteUrl } from "./docker.ts";
+import {
+  containerExists,
+  containerIsRunning,
+  dockerIsRunning,
+  querySiteUrl,
+  volumeExists,
+} from "./docker.ts";
 import { MockProcessRunner } from "./mock-process-runner.ts";
 
 describe("dockerIsRunning", () => {
@@ -57,6 +63,88 @@ describe("containerIsRunning", () => {
       "-qf",
       "name=staging-b-wordpress-",
     ]);
+  });
+});
+
+describe("containerExists", () => {
+  test("returns true when container ls -a returns an ID", () => {
+    const runner = new MockProcessRunner();
+    runner.addResponse(["docker", "container", "ls", "-aqf"], {
+      exitCode: 0,
+      stdout: "abc123def456\n",
+    });
+    expect(containerExists(runner, "mysite", "db")).toBe(true);
+  });
+
+  test("returns false when container ls -a returns empty output", () => {
+    const runner = new MockProcessRunner();
+    runner.addResponse(["docker", "container", "ls", "-aqf"], {
+      exitCode: 0,
+      stdout: "",
+    });
+    expect(containerExists(runner, "mysite", "db")).toBe(false);
+  });
+
+  test("returns false when docker command fails", () => {
+    const runner = new MockProcessRunner();
+    runner.addResponse(["docker", "container", "ls", "-aqf"], {
+      exitCode: 1,
+    });
+    expect(containerExists(runner, "mysite", "wordpress")).toBe(false);
+  });
+
+  test("passes correct filter with -a flag", () => {
+    const runner = new MockProcessRunner();
+    runner.addResponse(["docker", "container", "ls", "-aqf"], {
+      exitCode: 0,
+      stdout: "",
+    });
+    containerExists(runner, "staging-b", "wordpress");
+    expect(runner.calls[0]).toEqual([
+      "docker",
+      "container",
+      "ls",
+      "-aqf",
+      "name=staging-b-wordpress-",
+    ]);
+  });
+});
+
+describe("volumeExists", () => {
+  test("returns true when volume ls returns a name", () => {
+    const runner = new MockProcessRunner();
+    runner.addResponse(["docker", "volume", "ls", "-qf"], {
+      exitCode: 0,
+      stdout: "mysite_db_data\n",
+    });
+    expect(volumeExists(runner, "mysite_db_data")).toBe(true);
+  });
+
+  test("returns false when volume ls returns empty output", () => {
+    const runner = new MockProcessRunner();
+    runner.addResponse(["docker", "volume", "ls", "-qf"], {
+      exitCode: 0,
+      stdout: "",
+    });
+    expect(volumeExists(runner, "mysite_db_data")).toBe(false);
+  });
+
+  test("returns false when docker command fails", () => {
+    const runner = new MockProcessRunner();
+    runner.addResponse(["docker", "volume", "ls", "-qf"], {
+      exitCode: 1,
+    });
+    expect(volumeExists(runner, "mysite_db_data")).toBe(false);
+  });
+
+  test("passes correct filter for volume name", () => {
+    const runner = new MockProcessRunner();
+    runner.addResponse(["docker", "volume", "ls", "-qf"], {
+      exitCode: 0,
+      stdout: "",
+    });
+    volumeExists(runner, "staging-b_db_data");
+    expect(runner.calls[0]).toEqual(["docker", "volume", "ls", "-qf", "name=staging-b_db_data"]);
   });
 });
 
