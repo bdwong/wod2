@@ -9,6 +9,12 @@ export interface Filesystem {
   isDirectory(dirPath: string): boolean;
   /** Writes content to a file, creating parent directories as needed */
   writeFile(filePath: string, content: string): void;
+  /** Reads file content as a string */
+  readFile(filePath: string): string;
+  /** Returns true if the path exists and is a file */
+  fileExists(filePath: string): boolean;
+  /** Returns filenames in dir matching a glob pattern (supports * wildcard) */
+  globFiles(dir: string, pattern: string): string[];
 }
 
 export class RealFilesystem implements Filesystem {
@@ -38,5 +44,29 @@ export class RealFilesystem implements Filesystem {
 
   writeFile(filePath: string, content: string): void {
     fs.writeFileSync(filePath, content, "utf-8");
+  }
+
+  readFile(filePath: string): string {
+    return fs.readFileSync(filePath, "utf-8");
+  }
+
+  fileExists(filePath: string): boolean {
+    try {
+      return fs.statSync(filePath).isFile();
+    } catch {
+      return false;
+    }
+  }
+
+  globFiles(dir: string, pattern: string): string[] {
+    try {
+      const entries = fs.readdirSync(dir);
+      const regex = new RegExp(
+        `^${pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`,
+      );
+      return entries.filter((name) => regex.test(name)).sort();
+    } catch {
+      return [];
+    }
   }
 }

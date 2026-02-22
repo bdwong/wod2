@@ -441,4 +441,98 @@ describe("createInstance", () => {
       expect(result.siteUrl).toBe("http://127.0.0.1:9000");
     });
   });
+
+  describe("backup restore integration", () => {
+    test("validates backupDir exists before proceeding", async () => {
+      const fs = new MockFilesystem();
+      fs.addDirectory("/home/user/wod/other");
+      // backupDir does not exist — not added to existingDirs
+      const runner = new MockProcessRunner();
+      runner.addResponse(["docker", "container", "ls", "-aqf", "name=mysite-wordpress-"], {
+        exitCode: 0,
+        stdout: "",
+      });
+      runner.addResponse(["docker", "container", "ls", "-aqf", "name=mysite-db-"], {
+        exitCode: 0,
+        stdout: "",
+      });
+      runner.addResponse(["docker", "volume", "ls", "-qf", "name=mysite_db_data"], {
+        exitCode: 0,
+        stdout: "",
+      });
+      const deps = createDeps({ processRunner: runner, filesystem: fs });
+      const result = await createInstance(deps, "mysite", "/nonexistent/backups");
+      expect(result.exitCode).toBe(1);
+      expect(result.error).toContain("Backup directory does not exist");
+    });
+
+    test("creates instance and restores when backupDir provided", async () => {
+      const fs = new MockFilesystem();
+      fs.addDirectory("/home/user/wod/other");
+      fs.addDirectory("/backups");
+      // Don't add /home/user/wod/mysite — ensureDirectory will register it
+      fs.setDirFiles("/backups", ["backup_2024-01-01-db.gz"]);
+
+      const runner = setupSuccessRunner();
+      // Restore: chown
+      runner.addResponse(["sudo", "chown"], { exitCode: 0 });
+      // Restore: zcat | head (header parsing) — no table prefix
+      runner.addResponse(["bash", "-c"], { exitCode: 0, stdout: "# no header\n" });
+      // Restore: docker container ls (reuses existing prefix match)
+      // Restore: docker exec env (reuses existing prefix match)
+      // Restore: bash -c db import (reuses bash -c prefix match)
+
+      const deps = createDeps({ processRunner: runner, filesystem: fs });
+      const result = await createInstance(deps, "mysite", "/backups");
+      expect(result.exitCode).toBe(0);
+      expect(result.error).toBeNull();
+
+      // Verify restore-related calls occurred
+      const chownCall = runner.recordedCalls.find(
+        (c) => c.command[0] === "sudo" && c.command[1] === "chown",
+      );
+      expect(chownCall).toBeDefined();
+
+      // Verify wp option set siteurl and home calls
+      const optionSetCalls = runner.recordedCalls.filter(
+        (c) => c.command.includes("option") && c.command.includes("set"),
+      );
+      expect(optionSetCalls).toHaveLength(2);
+      expect(optionSetCalls[0].command).toContain("siteurl");
+      expect(optionSetCalls[0].command).toContain("http://127.0.0.1:8000");
+      expect(optionSetCalls[1].command).toContain("home");
+      expect(optionSetCalls[1].command).toContain("http://127.0.0.1:8000");
+    });
+
+    test("returns error if restore fails", async () => {
+      const fs = new MockFilesystem();
+      fs.addDirectory("/home/user/wod/other");
+      fs.addDirectory("/backups");
+      fs.setDirFiles("/backups", ["backup_2024-01-01-plugins.zip"]);
+
+      const runner = setupSuccessRunner();
+      // Restore: unzip fails
+      runner.addResponse(["sudo", "unzip"], { exitCode: 1, stderr: "unzip error" });
+
+      const deps = createDeps({ processRunner: runner, filesystem: fs });
+      const result = await createInstance(deps, "mysite", "/backups");
+      expect(result.exitCode).toBe(1);
+      expect(result.error).toContain("Failed to extract");
+    });
+
+    test("does not restore when backupDir is not provided", async () => {
+      const fs = new MockFilesystem();
+      fs.addDirectory("/home/user/wod/other");
+      const runner = setupSuccessRunner();
+      const deps = createDeps({ processRunner: runner, filesystem: fs });
+      const result = await createInstance(deps, "mysite");
+      expect(result.exitCode).toBe(0);
+
+      // No restore-related calls
+      const chownCall = runner.recordedCalls.find(
+        (c) => c.command[0] === "sudo" && c.command[1] === "chown",
+      );
+      expect(chownCall).toBeUndefined();
+    });
+  });
 });

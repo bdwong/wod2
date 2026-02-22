@@ -3,6 +3,7 @@ import { createInstance } from "../commands/create.ts";
 import { downInstance } from "../commands/down.ts";
 import { listInstances } from "../commands/ls.ts";
 import { formatLsOutput } from "../commands/ls-formatter.ts";
+import { restoreInstance } from "../commands/restore.ts";
 import { upInstance } from "../commands/up.ts";
 import { resolveConfig } from "../config/config.ts";
 import { resolveCreateConfig } from "../config/create-config.ts";
@@ -21,7 +22,8 @@ export function createProgram(): Command {
     .command("create")
     .description("Create a new WordPress Docker instance")
     .argument("<name>", "Instance name")
-    .action(async (name: string) => {
+    .argument("[backup-directory]", "Path to backup files to restore")
+    .action(async (name: string, backupDirectory?: string) => {
       const config = resolveConfig();
       const createConfig = resolveCreateConfig();
       const deps = {
@@ -31,7 +33,7 @@ export function createProgram(): Command {
         createConfig,
         sleep: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
       };
-      const result = await createInstance(deps, name);
+      const result = await createInstance(deps, name, backupDirectory);
       if (result.error) {
         console.error(result.error);
       }
@@ -92,6 +94,30 @@ export function createProgram(): Command {
         config,
       };
       const result = downInstance(deps, name);
+      if (result.exitCode !== 0) {
+        process.exit(result.exitCode);
+      }
+    });
+
+  program
+    .command("restore")
+    .description("Restore backup into existing instance")
+    .argument("<name>", "Instance name")
+    .argument("<backup-directory>", "Path to backup files")
+    .action((name: string, backupDirectory: string) => {
+      const config = resolveConfig();
+      const deps = {
+        processRunner: new BunProcessRunner(),
+        filesystem: new RealFilesystem(),
+        config,
+      };
+      const result = restoreInstance(deps, name, backupDirectory);
+      if (result.error) {
+        console.error(result.error);
+      }
+      for (const warning of result.warnings) {
+        console.warn(`Warning: ${warning}`);
+      }
       if (result.exitCode !== 0) {
         process.exit(result.exitCode);
       }

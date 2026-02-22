@@ -11,6 +11,7 @@ import {
 } from "../templates/php82-template.ts";
 import { patchDockerCompose, patchDockerfile } from "../templates/template-patcher.ts";
 import type { Filesystem } from "../utils/filesystem.ts";
+import { restoreInstance } from "./restore.ts";
 
 export interface CreateDependencies {
   processRunner: ProcessRunner;
@@ -30,6 +31,7 @@ export interface CreateResult {
 export async function createInstance(
   deps: CreateDependencies,
   name: string,
+  backupDir?: string,
 ): Promise<CreateResult> {
   const { processRunner, filesystem, config, createConfig, sleep } = deps;
   const instanceDir = targetDir(config, name);
@@ -68,6 +70,15 @@ export async function createInstance(
       siteUrl: null,
       adminPassword: null,
       error: `Docker volume already exists: ${name}_db_data`,
+    };
+  }
+
+  if (backupDir && !filesystem.isDirectory(backupDir)) {
+    return {
+      exitCode: 1,
+      siteUrl: null,
+      adminPassword: null,
+      error: `Backup directory does not exist: ${backupDir}`,
     };
   }
 
@@ -155,6 +166,68 @@ export async function createInstance(
   // Extract admin password from wp core install output
   const passwordMatch = wpResult.stdout.match(/^Admin password:\s*(.+)$/m);
   const adminPassword = passwordMatch ? passwordMatch[1].trim() : null;
+
+  // Restore backup if backupDir was provided
+  if (backupDir) {
+    const restoreResult = restoreInstance({ processRunner, filesystem, config }, name, backupDir);
+    if (restoreResult.exitCode !== 0) {
+      return {
+        exitCode: restoreResult.exitCode,
+        siteUrl: null,
+        adminPassword,
+        error: restoreResult.error,
+      };
+    }
+
+    // Update site URL after restore
+    const envFlags = wpEnvVars.flatMap((v) => ["--env", v]);
+    const wpCliBase = [
+      "docker",
+      "run",
+      "--rm",
+      ...envFlags,
+      "--volumes-from",
+      containerId,
+      "--network",
+      `container:${containerId}`,
+      "--user",
+      "33:33",
+      "wordpress:cli",
+      "wp",
+    ];
+
+    const siteUrlResult = processRunner.run([
+      ...wpCliBase,
+      "option",
+      "set",
+      "siteurl",
+      createConfig.siteUrl,
+    ]);
+    if (siteUrlResult.exitCode !== 0) {
+      return {
+        exitCode: siteUrlResult.exitCode,
+        siteUrl: null,
+        adminPassword,
+        error: `Failed to set siteurl: ${siteUrlResult.stderr}`,
+      };
+    }
+
+    const homeResult = processRunner.run([
+      ...wpCliBase,
+      "option",
+      "set",
+      "home",
+      createConfig.siteUrl,
+    ]);
+    if (homeResult.exitCode !== 0) {
+      return {
+        exitCode: homeResult.exitCode,
+        siteUrl: null,
+        adminPassword,
+        error: `Failed to set home URL: ${homeResult.stderr}`,
+      };
+    }
+  }
 
   return { exitCode: 0, siteUrl: createConfig.siteUrl, adminPassword, error: null };
 }

@@ -76,6 +76,23 @@ Run lint/format checks before committing.
 - Prefer `Error` subclasses for domain-specific errors
 - Avoid `any`; use `unknown` when the type is truly unknown
 
+### Formatting (Biome)
+
+- Biome collapses short arrays, function arguments, and chained method calls onto a single line when they fit within the line width. Write them single-line to avoid reformatting:
+  ```typescript
+  // Good — matches Biome output
+  const result = processRunner.run(["bash", "-c", `zcat "${dbPath}" | head -50`]);
+  const wpEnvVars = envResult.stdout.split("\n").filter((line) => line.startsWith("WORDPRESS"));
+
+  // Bad — Biome will collapse these to single lines
+  const result = processRunner.run([
+    "bash",
+    "-c",
+    `zcat "${dbPath}" | head -50`,
+  ]);
+  ```
+- When in doubt, run `bunx biome check --write .` to auto-fix formatting before committing.
+
 ### Naming Conventions
 
 - Files: `kebab-case.ts` (e.g., `docker-compose.ts`, `wod-create.ts`)
