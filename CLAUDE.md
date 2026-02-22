@@ -143,6 +143,7 @@ Runtime requirements (not npm packages):
 
 ```bash
 bun run index.ts          # Run the application
+bun run build             # Build single-file executable to dist/wod
 bun test                  # Run tests
 bunx biome check --write . # Fix lint + format
 ```
