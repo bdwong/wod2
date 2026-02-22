@@ -6,6 +6,7 @@ import { formatLsOutput } from "../commands/ls-formatter.ts";
 import { restoreInstance } from "../commands/restore.ts";
 import { rmInstance } from "../commands/rm.ts";
 import { upInstance } from "../commands/up.ts";
+import { buildWpCommand } from "../commands/wp.ts";
 import { resolveConfig } from "../config/config.ts";
 import { resolveCreateConfig } from "../config/create-config.ts";
 import { BunProcessRunner } from "../docker/process-runner.ts";
@@ -143,6 +144,30 @@ export function createProgram(): Command {
       if (result.exitCode !== 0) {
         process.exit(result.exitCode);
       }
+    });
+
+  program
+    .command("wp")
+    .description("Run wp-cli command on a running instance")
+    .argument("<name>", "Instance name")
+    .argument("[wp-args...]", "wp-cli arguments")
+    .allowUnknownOption()
+    .action((name: string, wpArgs: string[]) => {
+      const deps = {
+        processRunner: new BunProcessRunner(),
+        isTTY: process.stdin.isTTY ?? false,
+      };
+      const result = buildWpCommand(deps, name, wpArgs);
+      if (result.error) {
+        console.error(result.error);
+        process.exit(result.exitCode);
+      }
+      const proc = Bun.spawnSync(result.dockerCommand as string[], {
+        stdin: "inherit",
+        stdout: "inherit",
+        stderr: "inherit",
+      });
+      process.exit(proc.exitCode);
     });
 
   return program;
