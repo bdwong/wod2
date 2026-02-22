@@ -4,6 +4,7 @@ import { downInstance } from "../commands/down.ts";
 import { listInstances } from "../commands/ls.ts";
 import { formatLsOutput } from "../commands/ls-formatter.ts";
 import { restoreInstance } from "../commands/restore.ts";
+import { rmInstance } from "../commands/rm.ts";
 import { upInstance } from "../commands/up.ts";
 import { resolveConfig } from "../config/config.ts";
 import { resolveCreateConfig } from "../config/create-config.ts";
@@ -94,6 +95,27 @@ export function createProgram(): Command {
         config,
       };
       const result = downInstance(deps, name);
+      if (result.exitCode !== 0) {
+        process.exit(result.exitCode);
+      }
+    });
+
+  program
+    .command("rm")
+    .description("Remove an instance completely")
+    .argument("<name>", "Instance name")
+    .action((name: string) => {
+      const config = resolveConfig();
+      const deps = {
+        processRunner: new BunProcessRunner(),
+        filesystem: new RealFilesystem(),
+        config,
+      };
+      console.log(`Removing ${name}`);
+      const result = rmInstance(deps, name);
+      if (result.error) {
+        console.error(result.error);
+      }
       if (result.exitCode !== 0) {
         process.exit(result.exitCode);
       }
