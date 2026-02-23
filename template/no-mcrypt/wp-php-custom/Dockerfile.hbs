@@ -1,0 +1,22 @@
+FROM wordpress:{{wordpressTag}}
+
+# Install PHP extensions for image processing
+RUN apt-get update && apt-get install -y \
+        libfreetype6-dev \
+        libjpeg62-turbo-dev \
+        libpng-dev \
+    && docker-php-ext-install -j$(nproc) iconv \
+    && docker-php-ext-configure gd --with-freetype-dir=/usr/include/ --with-jpeg-dir=/usr/include/ \
+    && docker-php-ext-install -j$(nproc) gd
+
+# PHP config: increase upload limits
+COPY default.ini /usr/local/etc/php/conf.d/default.ini
+
+# Apache: AllowOverride All for .htaccess support
+RUN sed -i \
+        -e '/<\/VirtualHost>/i\' \
+        -e '        <Directory "/var/www/html">\' \
+        -e '                Options Indexes FollowSymLinks MultiViews\' \
+        -e '                AllowOverride All\' \
+        -e '        </Directory>' \
+        /etc/apache2/sites-available/000-default.conf
