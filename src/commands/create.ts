@@ -1,15 +1,11 @@
-import * as path from "node:path";
 import type { WodConfig } from "../config/config.ts";
 import { targetDir } from "../config/config.ts";
 import type { CreateConfig } from "../config/create-config.ts";
 import { containerExists, volumeExists } from "../docker/docker.ts";
 import type { ProcessRunner } from "../docker/process-runner.ts";
-import {
-  DEFAULT_INI_TEMPLATE,
-  DOCKER_COMPOSE_TEMPLATE,
-  DOCKERFILE_TEMPLATE,
-} from "../templates/php82-template.ts";
-import { patchDockerCompose, patchDockerfile } from "../templates/template-patcher.ts";
+import type { TemplateSource } from "../templates/template-engine.ts";
+import { installTemplate } from "../templates/template-engine.ts";
+import { buildTemplateVars } from "../templates/template-vars.ts";
 import type { Filesystem } from "../utils/filesystem.ts";
 import { restoreInstance } from "./restore.ts";
 
@@ -18,6 +14,7 @@ export interface CreateDependencies {
   filesystem: Filesystem;
   config: WodConfig;
   createConfig: CreateConfig;
+  templateSource: TemplateSource;
   sleep: (ms: number) => Promise<void>;
 }
 
@@ -33,7 +30,7 @@ export async function createInstance(
   name: string,
   backupDir?: string,
 ): Promise<CreateResult> {
-  const { processRunner, filesystem, config, createConfig, sleep } = deps;
+  const { processRunner, filesystem, config, createConfig, templateSource, sleep } = deps;
   const instanceDir = targetDir(config, name);
 
   // Prerequisite checks
@@ -83,18 +80,8 @@ export async function createInstance(
   }
 
   // Write template files to instance directory
-  filesystem.ensureDirectory(instanceDir);
-  filesystem.ensureDirectory(path.join(instanceDir, "wp-php-custom"));
-
-  const patchedCompose = patchDockerCompose(DOCKER_COMPOSE_TEMPLATE, createConfig);
-  const patchedDockerfile = patchDockerfile(DOCKERFILE_TEMPLATE, createConfig);
-
-  filesystem.writeFile(path.join(instanceDir, "docker-compose.yml"), patchedCompose);
-  filesystem.writeFile(path.join(instanceDir, "wp-php-custom", "Dockerfile"), patchedDockerfile);
-  filesystem.writeFile(
-    path.join(instanceDir, "wp-php-custom", "default.ini"),
-    DEFAULT_INI_TEMPLATE,
-  );
+  const vars = buildTemplateVars(createConfig);
+  installTemplate(createConfig.templateName, instanceDir, vars, filesystem, templateSource);
 
   // docker compose up -d
   const composeResult = processRunner.run(["docker", "compose", "up", "-d"], { cwd: instanceDir });

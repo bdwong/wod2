@@ -44,7 +44,12 @@ WOD wraps Docker Compose and wp-cli to provide a simple interface for:
 - Listing, starting, stopping, and deleting instances
 
 The original implementation is ~650 lines of Bash spread across 10 shell scripts
-plus Docker Compose / Dockerfile templates.
+plus Docker Compose / Dockerfile templates. The reimplementation (wod2) is in
+TypeScript and moves away from shelling out to CLI utilities (`sed`, `grep`,
+`awk`, etc.) where it makes sense, preferring in-process solutions such as
+Handlebars for template rendering and native string processing for text
+manipulation. External process invocations are reserved for operations that
+genuinely require them, such as Docker and `sudo`.
 
 ---
 
@@ -85,9 +90,18 @@ plus Docker Compose / Dockerfile templates.
 | wp-cli (via `wordpress:cli` Docker image) | WordPress management commands |
 | `unzip` | Extracting backup archives |
 | `zcat` | Decompressing `.gz` database dumps |
-| `sed`, `grep`, `awk` | Text processing in templates and restores |
+| `sed` | SQL processing during database import |
 | `sudo` | File permission operations on site directories |
-| `openssl` (optional) | Generating self-signed SSL certificates |
+| `openssl` (optional) | Generating self-signed SSL certificates (planned) |
+
+> **Note:** The original Bash implementation also depended on `grep`, `awk`,
+> and `sed` for template patching and text processing. The wod2
+> reimplementation handles template rendering in-process with Handlebars and
+> performs string manipulation natively in TypeScript, eliminating most of
+> these external tool dependencies. The remaining `sed` usage is within a
+> shell pipeline for database import processing, and `zcat` is used to
+> decompress database dumps — both are invoked via Docker/shell commands
+> where in-process alternatives would add unnecessary complexity.
 
 ---
 
@@ -135,8 +149,8 @@ plus Docker Compose / Dockerfile templates.
 ### 3.2 Data Flow: Instance Lifecycle
 
 ```
-create ──► Template copied to WOD_HOME/<name>/
-       ──► Dockerfile & docker-compose.yml patched with versions
+create ──► Template resolved (user-customized or bundled)
+       ──► Handlebars renders .hbs files to WOD_HOME/<name>/
        ──► docker compose up -d
        ──► Wait 10s for DB startup
        ──► wp core install (fresh WordPress)
@@ -178,26 +192,37 @@ ls     ──► Scan WOD_HOME for subdirectories
 
 ### 4.1 Installation Layout
 
+**Original Bash implementation:**
+
 ```
 /usr/bin/wod                         # Main entry point
 /usr/lib/wod/
 ├── bin/
 │   ├── functions                    # Shared utility functions
-│   ├── wod-create                   # Create subcommand
-│   ├── wod-down                     # Down subcommand
-│   ├── wod-help                     # Help subcommand
-│   ├── wod-ls                       # List subcommand
-│   ├── wod-restore                  # Restore subcommand
-│   ├── wod-rm                       # Remove subcommand
-│   ├── wod-up                       # Up subcommand
-│   ├── wod-wp                       # WP-CLI subcommand
-│   └── wp -> wod-wp                 # Symlink
+│   ├── wod-create, wod-down, ...   # Subcommand scripts
+│   └── wp -> wod-wp                # Symlink
 └── template/
     ├── default/                     # PHP 7.1 + mcrypt
     ├── no-mcrypt/                   # PHP 7.1, no mcrypt
     ├── php7.4/                      # PHP 7.4
     ├── php8.1/                      # PHP 8.1
     └── php8.2/                      # PHP 8.2 (default)
+```
+
+**wod2 reimplementation:**
+
+wod2 compiles to a single executable (`dist/wod`) with templates bundled
+inside. No `/usr/lib/wod/` directory is needed. Users can run `wod install`
+to extract bundled templates to `<WOD_HOME>/.template/` for customization.
+
+```
+dist/wod                             # Single compiled executable (all templates bundled)
+~/wod/.template/                     # User-customized templates (created by wod install)
+    └── php8.2/                      # Extracted from bundled templates
+        ├── docker-compose.yml.hbs
+        └── wp-php-custom/
+            ├── Dockerfile.hbs
+            └── default.ini
 ```
 
 ### 4.2 Runtime Layout (Per Instance)
@@ -234,15 +259,17 @@ ls     ──► Scan WOD_HOME for subdirectories
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `WOD_HOME` | `~/wod` | Root directory where all instances are stored |
-| `SCRIPT_HOME` | `/usr/lib/wod/bin` | Directory containing WOD subcommand scripts |
-| `TEMPLATE_DIR` | `/usr/lib/wod/template` | Directory containing Docker templates |
-| `TEMPLATE_NAME` | `php8.2` | Which template subdirectory to use |
+| `TEMPLATE_NAME` | `php8.2` | Which template to use |
 | `WORDPRESS_VERSION` | `6.7.1` | WordPress version number |
 | `PHP_VERSION` | `8.2` | PHP version number |
 | `MYSQL_VERSION` | `5.7` | MySQL version number |
 | `SITEURL` | `http://127.0.0.1:8000` | Local URL for the WordPress site |
-| `WORDPRESS_TAG` | `<computed>` | Full Docker image tag; defaults to `<WP_VERSION>-php<PHP_VERSION>-apache` |
-| `BACKUP_PREFIX` | *(none)* | Path to backup directory (alternative to CLI argument) |
+
+> **Removed from original:** `SCRIPT_HOME`, `TEMPLATE_DIR`, `WORDPRESS_TAG`,
+> and `BACKUP_PREFIX` were specific to the Bash implementation. In wod2,
+> templates are bundled in the executable (or customized via
+> `<WOD_HOME>/.template/`), computed tags are derived internally, and the
+> backup path is passed as a CLI argument only.
 
 ### 5.2 Configuration Precedence (Highest to Lowest)
 
@@ -291,9 +318,10 @@ If no command is given, help text is printed.
 | `down` | `<name>` | Stop a running instance |
 | `rm` | `<name>` | Remove an instance completely |
 | `restore` | `<name> <backup-directory>` | Restore backup into existing instance |
+| `install` | *(none)* | Extract bundled templates to `<WOD_HOME>/.template/` for customization |
 | `wp` | `<name> <wp-cli-command...>` | Run wp-cli command on instance |
 | `help` | `<command>` | Show help for a command |
-| `bootstrap` | `[functions]` | Output shell initialization code |
+| `bootstrap` | `[functions]` | Output shell initialization code *(original Bash only)* |
 
 ### 6.3 Command Dispatch Mechanism
 
@@ -359,19 +387,11 @@ The `wp` function wrapper allows `wp` typed at the shell to route through WOD's
       stopped).
    d. No Docker volume named `<name>_db_data` must exist.
    e. If `backup-directory` specified, it must be a valid directory.
-8. Copy template directory to instance directory:
-   ```
-   cp -r TEMPLATE_DIR/TEMPLATE_NAME/* TARGET_DIR/
-   ```
-9. Patch the `Dockerfile`: replace the `FROM` line with:
-   ```
-   FROM wordpress:<WORDPRESS_TAG>
-   ```
-10. Patch `docker-compose.yml`:
-    - Replace `image: mysql:*` with `image: mysql:<MYSQL_VERSION>`
-    - Replace `image: wordpress:*` with `image: wordpress:<WP_VERSION>-php<PHP_VERSION>-custom`
-11. **Pause for user confirmation** (print "Ready to run docker-compose up. Press
-    Enter to continue" and wait for input).
+8. Resolve the template source (user-customized `<WOD_HOME>/.template/<name>/`
+   or bundled) and render template files to the instance directory using
+   Handlebars (see Section 9 for details). This produces the final
+   `docker-compose.yml`, `Dockerfile`, and `default.ini` with the correct
+   version strings.
 12. Change to instance directory.
 13. Run `docker compose up -d`.
 14. Sleep 10 seconds (wait for database initialization).
@@ -709,36 +729,78 @@ These functions (defined in `lib/functions`) are sourced by all subcommands.
 
 ## 9. Docker Template System
 
-### 9.1 Template Structure
+### 9.1 Overview
 
-Each template is a directory under `TEMPLATE_DIR` containing:
+> **Historical note:** The original Bash implementation stored templates as
+> static files under `/usr/lib/wod/template/` and patched version strings
+> at create time using `sed` regex replacements. The wod2 reimplementation
+> replaces this with **Handlebars templates** (`.hbs` files) that are compiled
+> in-process, eliminating the need for external text-processing utilities.
+
+Templates are stored as actual files in the `template/` directory at the
+project root. Files with a `.hbs` extension are processed through Handlebars
+at create time; all other files are copied as-is.
+
+### 9.2 Template Structure
+
+Each template is a directory under `template/` containing:
 
 ```
-<template-name>/
-├── docker-compose.yml
-└── wp-php-custom/
-    ├── Dockerfile
-    └── default.ini
+template/
+└── php8.2/
+    ├── docker-compose.yml.hbs       # Handlebars template
+    └── wp-php-custom/
+        ├── Dockerfile.hbs           # Handlebars template
+        └── default.ini              # Copied as-is (no .hbs extension)
 ```
 
-### 9.2 Available Templates
+### 9.3 Template Variables
 
-| Template | Base WP Version | PHP | MySQL | MCrypt | docker-compose version |
-|----------|----------------|-----|-------|--------|----------------------|
-| `default` | 4.9.6 | 7.1 | 5.7 | Yes | `version: '2'` |
-| `no-mcrypt` | 4.9.6 | 7.1 | 5.7 | No | `version: '2'` |
-| `php7.4` | latest | 7.4 | 5.7 | No | `version: '2'` |
-| `php8.1` | latest | 8.1 | 5.7 | No | *(none)* |
-| `php8.2` | 6.5.4 | 8.2 | 5.7 | No | *(none)* |
+Handlebars templates receive a `TemplateVars` object with the following fields:
 
-### 9.3 docker-compose.yml Template
+| Variable | Example Value | Source |
+|----------|--------------|--------|
+| `wordpressVersion` | `6.7.1` | `CreateConfig.wordpressVersion` |
+| `phpVersion` | `8.2` | `CreateConfig.phpVersion` |
+| `mysqlVersion` | `5.7` | `CreateConfig.mysqlVersion` |
+| `wordpressTag` | `6.7.1-php8.2-apache` | Computed: `<WP>-php<PHP>-apache` |
+| `wordpressCustomImageTag` | `6.7.1-php8.2-custom` | Computed: `<WP>-php<PHP>-custom` |
+
+### 9.4 Template Bundling and Resolution
+
+Templates are bundled into the compiled executable via TypeScript
+`import ... with { type: "text" }` statements in `src/templates/bundled-templates.ts`.
+This means templates are embedded at compile time and available without external files.
+
+**Resolution order** (checked by `resolveTemplateSource()`):
+
+1. **User-customized template:** `<WOD_HOME>/.template/<templateName>/` — if
+   this directory exists, its files are used instead of the bundled template.
+2. **Bundled template:** Compiled into the executable from `template/`.
+3. If neither is found, an error is thrown.
+
+The `wod install` command extracts all bundled templates to
+`<WOD_HOME>/.template/` so users can customize them.
+
+### 9.5 Available Templates
+
+| Template | PHP | Notes |
+|----------|-----|-------|
+| `php8.2` | 8.2 | Default template |
+
+> The original Bash WOD shipped templates for PHP 7.1 (with and without
+> mcrypt), PHP 7.4, PHP 8.1, and PHP 8.2. The wod2 reimplementation currently
+> ships only the `php8.2` template. Legacy PHP templates (which required
+> different `gd` configure syntax and mcrypt extensions) have been dropped.
+
+### 9.6 docker-compose.yml.hbs Template
 
 The template defines two services:
 
 ```yaml
 services:
    db:
-      image: mysql:5.7                    # ← Patched by wod-create
+      image: mysql:{{mysqlVersion}}
       volumes:
          - db_data:/var/lib/mysql
       restart: always
@@ -752,7 +814,7 @@ services:
       depends_on:
          - db
       build: ./wp-php-custom
-      image: wordpress:X.X.X-phpX.X-custom  # ← Patched by wod-create
+      image: wordpress:{{wordpressCustomImageTag}}
       volumes:
          - ./site:/var/www/html
       ports:
@@ -776,12 +838,12 @@ volumes:
 - Database credentials are hardcoded (`wordpress`/`wordpress`). This is
   acceptable because these are local development instances only.
 
-### 9.4 Dockerfile Template
+### 9.7 Dockerfile.hbs Template
 
 The Dockerfile builds a custom WordPress image:
 
 ```dockerfile
-FROM wordpress:<WP_VERSION>-php<PHP_VERSION>-apache     # ← Patched
+FROM wordpress:{{wordpressTag}}
 
 # Install PHP extensions for image processing
 RUN apt-get update && apt-get install -y \
@@ -805,35 +867,24 @@ RUN sed -i \
         /etc/apache2/sites-available/000-default.conf
 ```
 
-**Variations by template:**
-- `default` template adds `libmcrypt-dev` and `mcrypt` PHP extension.
-- `default` template uses `--with-freetype-dir=/usr/include/
-  --with-jpeg-dir=/usr/include/` for `gd` configure (PHP 7.1 syntax).
-- Modern templates (php7.4+) use the simplified `gd` configure syntax.
-
-### 9.5 default.ini
+### 9.8 default.ini
 
 ```ini
 upload_max_filesize=100M
 post_max_size = 100M
 ```
 
-### 9.6 Template Patching (wod-create)
+### 9.9 Template Processing
 
-During instance creation, the template files are patched:
+During `wod create`, the template engine:
 
-1. **Dockerfile `FROM` line:**
-   ```
-   sed -i -e "s/^FROM.*$/FROM wordpress:<WORDPRESS_TAG>/"
-   ```
-   Where `WORDPRESS_TAG` = `<WP_VERSION>-php<PHP_VERSION>-apache`.
-
-2. **docker-compose.yml `image` lines:**
-   ```
-   sed -i \
-       -e "s/^\([[:space:]]*\)image: mysql.*$/\1image: mysql:<MYSQL_VERSION>/" \
-       -e "s/^\([[:space:]]*\)image: wordpress.*$/\1image: wordpress:<WP_VERSION>-php<PHP_VERSION>-custom/"
-   ```
+1. Resolves the template source (user-customized or bundled).
+2. Iterates over all files in the template.
+3. For each `.hbs` file: compiles with Handlebars using `TemplateVars`, writes
+   the output without the `.hbs` extension (e.g., `docker-compose.yml.hbs` →
+   `docker-compose.yml`).
+4. For all other files: copies content as-is.
+5. Creates parent directories as needed.
 
 ---
 
@@ -1092,8 +1143,8 @@ wod up <name>                   # Start instance
 wod down <name>                 # Stop instance
 wod rm <name>                   # Remove instance
 wod restore <name> <backup-dir> # Restore backup
+wod install                     # Extract bundled templates for customization
 wod wp <name> <command...>      # Run wp-cli command
-wod bootstrap [functions]       # Output shell init code
 ```
 
 ## Appendix B: Docker Container Lookup Patterns

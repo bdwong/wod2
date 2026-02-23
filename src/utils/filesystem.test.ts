@@ -89,4 +89,33 @@ describe("RealFilesystem", () => {
       expect(fs.readFileSync(filePath, "utf-8")).toBe("new content");
     });
   });
+
+  describe("listFilesRecursive", () => {
+    test("returns relative paths of all files recursively", () => {
+      fs.mkdirSync(path.join(tmpDir, "sub"));
+      fs.writeFileSync(path.join(tmpDir, "a.txt"), "a");
+      fs.writeFileSync(path.join(tmpDir, "sub", "b.txt"), "b");
+      const result = filesystem.listFilesRecursive(tmpDir);
+      expect(result).toEqual(["a.txt", "sub/b.txt"]);
+    });
+
+    test("excludes directories from results", () => {
+      fs.mkdirSync(path.join(tmpDir, "emptydir"));
+      fs.writeFileSync(path.join(tmpDir, "file.txt"), "content");
+      const result = filesystem.listFilesRecursive(tmpDir);
+      expect(result).toEqual(["file.txt"]);
+    });
+
+    test("returns empty array for non-existent directory", () => {
+      const result = filesystem.listFilesRecursive(path.join(tmpDir, "nope"));
+      expect(result).toEqual([]);
+    });
+
+    test("returns sorted results", () => {
+      fs.writeFileSync(path.join(tmpDir, "z.txt"), "z");
+      fs.writeFileSync(path.join(tmpDir, "a.txt"), "a");
+      const result = filesystem.listFilesRecursive(tmpDir);
+      expect(result).toEqual(["a.txt", "z.txt"]);
+    });
+  });
 });

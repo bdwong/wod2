@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { CreateConfig } from "../config/create-config.ts";
 import { MockProcessRunner } from "../docker/mock-process-runner.ts";
+import { BUNDLED_TEMPLATES } from "../templates/bundled-templates.ts";
+import { BundledTemplateSource } from "../templates/template-engine.ts";
 import { MockFilesystem } from "../utils/mock-filesystem.ts";
 import { type CreateDependencies, createInstance } from "./create.ts";
 
@@ -18,6 +20,7 @@ function createDeps(overrides?: Partial<CreateDependencies>): CreateDependencies
     filesystem: overrides?.filesystem ?? new MockFilesystem(),
     config: overrides?.config ?? { wodHome: "/home/user/wod" },
     createConfig: overrides?.createConfig ?? defaultCreateConfig,
+    templateSource: overrides?.templateSource ?? new BundledTemplateSource(BUNDLED_TEMPLATES),
     sleep: overrides?.sleep ?? (async () => {}),
   };
 }
@@ -188,7 +191,7 @@ describe("createInstance", () => {
         wordpressVersion: "5.9",
         phpVersion: "7.4",
         mysqlVersion: "8.0",
-        templateName: "php7.4",
+        templateName: "php8.2",
         siteUrl: "http://127.0.0.1:9000",
       };
       const deps = createDeps({

@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as path from "node:path";
 
 export interface Filesystem {
   /** Returns sorted names of subdirectories in the given directory, or empty array if dir doesn't exist */
@@ -15,6 +16,8 @@ export interface Filesystem {
   fileExists(filePath: string): boolean;
   /** Returns filenames in dir matching a glob pattern (supports * wildcard) */
   globFiles(dir: string, pattern: string): string[];
+  /** Returns relative file paths recursively under dirPath */
+  listFilesRecursive(dirPath: string): string[];
 }
 
 export class RealFilesystem implements Filesystem {
@@ -65,6 +68,22 @@ export class RealFilesystem implements Filesystem {
         `^${pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`,
       );
       return entries.filter((name) => regex.test(name)).sort();
+    } catch {
+      return [];
+    }
+  }
+
+  listFilesRecursive(dirPath: string): string[] {
+    try {
+      const entries = fs.readdirSync(dirPath, { recursive: true, withFileTypes: true });
+      return entries
+        .filter((entry) => entry.isFile())
+        .map((entry) => {
+          const parent = entry.parentPath ?? entry.path;
+          const rel = path.relative(dirPath, path.join(parent, entry.name));
+          return rel;
+        })
+        .sort();
     } catch {
       return [];
     }

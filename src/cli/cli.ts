@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { createInstance } from "../commands/create.ts";
 import { downInstance } from "../commands/down.ts";
+import { installBundledTemplates } from "../commands/install.ts";
 import { listInstances } from "../commands/ls.ts";
 import { formatLsOutput } from "../commands/ls-formatter.ts";
 import { restoreInstance } from "../commands/restore.ts";
@@ -10,6 +11,7 @@ import { buildWpCommand } from "../commands/wp.ts";
 import { resolveConfig } from "../config/config.ts";
 import { resolveCreateConfig } from "../config/create-config.ts";
 import { BunProcessRunner } from "../docker/process-runner.ts";
+import { resolveTemplateSource } from "../templates/template-resolver.ts";
 import { RealFilesystem } from "../utils/filesystem.ts";
 
 export function createProgram(): Command {
@@ -28,11 +30,18 @@ export function createProgram(): Command {
     .action(async (name: string, backupDirectory?: string) => {
       const config = resolveConfig();
       const createConfig = resolveCreateConfig();
+      const filesystem = new RealFilesystem();
+      const templateSource = resolveTemplateSource(
+        createConfig.templateName,
+        filesystem,
+        config.wodHome,
+      );
       const deps = {
         processRunner: new BunProcessRunner(),
-        filesystem: new RealFilesystem(),
+        filesystem,
         config,
         createConfig,
+        templateSource,
         sleep: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
       };
       const result = await createInstance(deps, name, backupDirectory);
@@ -144,6 +153,15 @@ export function createProgram(): Command {
       if (result.exitCode !== 0) {
         process.exit(result.exitCode);
       }
+    });
+
+  program
+    .command("install")
+    .description("Extract bundled templates to ~/wod/.template/ for customization")
+    .action(() => {
+      const config = resolveConfig();
+      installBundledTemplates(new RealFilesystem(), config.wodHome);
+      console.log(`Templates installed to ${config.wodHome}/.template/`);
     });
 
   program

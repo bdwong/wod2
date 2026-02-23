@@ -6,6 +6,7 @@ export class MockFilesystem implements Filesystem {
   private existingDirsConfigured = false;
   private files: Map<string, string> = new Map();
   private dirFiles: Map<string, string[]> = new Map();
+  private recursiveFiles: Map<string, string[]> = new Map();
   public ensuredDirs: string[] = [];
   public writtenFiles: Map<string, string> = new Map();
 
@@ -64,5 +65,13 @@ export class MockFilesystem implements Filesystem {
       `^${pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`,
     );
     return entries.filter((name) => regex.test(name)).sort();
+  }
+
+  setRecursiveFiles(dirPath: string, relativePaths: string[]): void {
+    this.recursiveFiles.set(dirPath, relativePaths);
+  }
+
+  listFilesRecursive(dirPath: string): string[] {
+    return (this.recursiveFiles.get(dirPath) ?? []).sort();
   }
 }
