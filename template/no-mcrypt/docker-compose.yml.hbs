@@ -20,6 +20,7 @@ services:
          - ./site:/var/www/html
       ports:
          - "8000:80"
+         - "8443:443"
       restart: always
       environment:
          WORDPRESS_DB_HOST: db:3306

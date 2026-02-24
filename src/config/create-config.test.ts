@@ -36,7 +36,7 @@ describe("resolveCreateConfig", () => {
       phpVersion: "8.2",
       mysqlVersion: "5.7",
       templateName: "php8.2",
-      siteUrl: "http://127.0.0.1:8000",
+      siteUrl: "https://127.0.0.1:8443",
     });
   });
 

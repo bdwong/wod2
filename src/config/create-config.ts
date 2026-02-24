@@ -12,7 +12,7 @@ export function resolveCreateConfig(overrides?: Partial<CreateConfig>): CreateCo
     phpVersion: overrides?.phpVersion ?? process.env.PHP_VERSION ?? "8.2",
     mysqlVersion: overrides?.mysqlVersion ?? process.env.MYSQL_VERSION ?? "5.7",
     templateName: overrides?.templateName ?? process.env.TEMPLATE_NAME ?? "php8.2",
-    siteUrl: overrides?.siteUrl ?? process.env.SITEURL ?? "http://127.0.0.1:8000",
+    siteUrl: overrides?.siteUrl ?? process.env.SITEURL ?? "https://127.0.0.1:8443",
   };
 }
 

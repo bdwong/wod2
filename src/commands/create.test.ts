@@ -11,7 +11,7 @@ const defaultCreateConfig: CreateConfig = {
   phpVersion: "8.2",
   mysqlVersion: "5.7",
   templateName: "php8.2",
-  siteUrl: "http://127.0.0.1:8000",
+  siteUrl: "https://127.0.0.1:8443",
 };
 
 function createDeps(overrides?: Partial<CreateDependencies>): CreateDependencies {
@@ -41,6 +41,8 @@ function setupSuccessRunner(): MockProcessRunner {
     exitCode: 0,
     stdout: "",
   });
+  // Generate self-signed TLS certificate
+  runner.addResponse(["openssl"], { exitCode: 0 });
   // docker compose up
   runner.addResponse(["docker", "compose", "up", "-d"], { exitCode: 0 });
   // Find WordPress container
@@ -183,6 +185,28 @@ describe("createInstance", () => {
       expect(ini).toContain("upload_max_filesize=100M");
     });
 
+    test("generates self-signed TLS certificate in wp-php-custom directory", async () => {
+      const fs = new MockFilesystem();
+      fs.addDirectory("/home/user/wod/other");
+      const runner = setupSuccessRunner();
+      const deps = createDeps({ processRunner: runner, filesystem: fs });
+      await createInstance(deps, "mysite");
+
+      const opensslCall = runner.recordedCalls.find((c) => c.command[0] === "openssl");
+      expect(opensslCall).toBeDefined();
+      expect(opensslCall?.command).toContain("req");
+      expect(opensslCall?.command).toContain("-newkey");
+      expect(opensslCall?.command).toContain("rsa:2048");
+      expect(opensslCall?.command).toContain("-nodes");
+      expect(opensslCall?.command).toContain("-x509");
+      expect(opensslCall?.command).toContain("-days");
+      expect(opensslCall?.command).toContain("365");
+      expect(opensslCall?.command).toContain("-subj");
+      expect(opensslCall?.command).toContain("/CN=localhost");
+      expect(opensslCall?.command).toContain("/home/user/wod/mysite/wp-php-custom/cert.key");
+      expect(opensslCall?.command).toContain("/home/user/wod/mysite/wp-php-custom/cert.pem");
+    });
+
     test("uses custom versions in template files", async () => {
       const fs = new MockFilesystem();
       fs.addDirectory("/home/user/wod/other");
@@ -242,6 +266,7 @@ describe("createInstance", () => {
         exitCode: 0,
         stdout: "",
       });
+      runner.addResponse(["openssl"], { exitCode: 0 });
       runner.addResponse(["docker", "compose", "up", "-d"], {
         exitCode: 2,
         stderr: "compose error",
@@ -268,11 +293,12 @@ describe("createInstance", () => {
         exitCode: 0,
         stdout: "",
       });
+      runner.addResponse(["openssl"], { exitCode: 0 });
       runner.addResponse(["docker", "compose", "up", "-d"], { exitCode: 1 });
       const deps = createDeps({ processRunner: runner, filesystem: fs });
       await createInstance(deps, "mysite");
-      // Should only have prerequisite checks + compose = 4 calls
-      expect(runner.calls).toHaveLength(4);
+      // Should only have prerequisite checks + openssl + compose = 5 calls
+      expect(runner.calls).toHaveLength(5);
     });
   });
 
@@ -311,6 +337,7 @@ describe("createInstance", () => {
         exitCode: 0,
         stdout: "",
       });
+      runner.addResponse(["openssl"], { exitCode: 0 });
       runner.addResponse(["docker", "compose", "up", "-d"], { exitCode: 0 });
       runner.addResponse(["docker", "container", "ls", "-qf", "name=mysite-wordpress-"], {
         exitCode: 0,
@@ -334,7 +361,7 @@ describe("createInstance", () => {
       );
       expect(wpCall).toBeDefined();
       expect(wpCall?.command).toContain("wordpress:cli");
-      expect(wpCall?.command).toContain("--url=http://127.0.0.1:8000");
+      expect(wpCall?.command).toContain("--url=https://127.0.0.1:8443");
       expect(wpCall?.command).toContain("--title=Testing WordPress");
       expect(wpCall?.command).toContain("--admin_user=admin");
       expect(wpCall?.command).toContain("--admin_email=admin@127.0.0.1");
@@ -391,6 +418,7 @@ describe("createInstance", () => {
         exitCode: 0,
         stdout: "",
       });
+      runner.addResponse(["openssl"], { exitCode: 0 });
       runner.addResponse(["docker", "compose", "up", "-d"], { exitCode: 0 });
       runner.addResponse(["docker", "container", "ls", "-qf", "name=mysite-wordpress-"], {
         exitCode: 0,
@@ -416,7 +444,7 @@ describe("createInstance", () => {
       const deps = createDeps({ processRunner: runner, filesystem: fs });
       const result = await createInstance(deps, "mysite");
       expect(result.exitCode).toBe(0);
-      expect(result.siteUrl).toBe("http://127.0.0.1:8000");
+      expect(result.siteUrl).toBe("https://127.0.0.1:8443");
       expect(result.error).toBeNull();
     });
 
@@ -502,9 +530,9 @@ describe("createInstance", () => {
       );
       expect(optionSetCalls).toHaveLength(2);
       expect(optionSetCalls[0].command).toContain("siteurl");
-      expect(optionSetCalls[0].command).toContain("http://127.0.0.1:8000");
+      expect(optionSetCalls[0].command).toContain("https://127.0.0.1:8443");
       expect(optionSetCalls[1].command).toContain("home");
-      expect(optionSetCalls[1].command).toContain("http://127.0.0.1:8000");
+      expect(optionSetCalls[1].command).toContain("https://127.0.0.1:8443");
     });
 
     test("returns error if restore fails", async () => {

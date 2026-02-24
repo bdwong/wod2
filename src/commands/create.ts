@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { WodConfig } from "../config/config.ts";
 import { targetDir } from "../config/config.ts";
 import type { CreateConfig } from "../config/create-config.ts";
@@ -82,6 +83,25 @@ export async function createInstance(
   // Write template files to instance directory
   const vars = buildTemplateVars(createConfig);
   installTemplate(createConfig.templateName, instanceDir, vars, filesystem, templateSource);
+
+  // Generate self-signed TLS certificate
+  const certDir = path.join(instanceDir, "wp-php-custom");
+  processRunner.run([
+    "openssl",
+    "req",
+    "-newkey",
+    "rsa:2048",
+    "-nodes",
+    "-keyout",
+    path.join(certDir, "cert.key"),
+    "-x509",
+    "-days",
+    "365",
+    "-out",
+    path.join(certDir, "cert.pem"),
+    "-subj",
+    "/CN=localhost",
+  ]);
 
   // docker compose up -d
   const composeResult = processRunner.run(["docker", "compose", "up", "-d"], { cwd: instanceDir });
