@@ -46,7 +46,7 @@ function setupSuccessRunner(): MockProcessRunner {
   // Generate self-signed TLS certificate
   runner.addResponse(["openssl"], { exitCode: 0 });
   // docker compose up
-  runner.addResponse(["docker", "compose", "up", "-d"], { exitCode: 0 });
+  runner.addResponse(["docker", "compose", "up", "--build", "-d"], { exitCode: 0 });
   // Find WordPress container
   runner.addResponse(["docker", "container", "ls", "-qf", "name=mysite-wordpress-"], {
     exitCode: 0,
@@ -283,7 +283,7 @@ describe("createInstance", () => {
         (c) => c.command[0] === "docker" && c.command[1] === "compose",
       );
       expect(composeCall).toBeDefined();
-      expect(composeCall?.command).toEqual(["docker", "compose", "up", "-d"]);
+      expect(composeCall?.command).toEqual(["docker", "compose", "up", "--build", "-d"]);
       expect(composeCall?.options?.cwd).toBe("/home/user/wod/mysite");
     });
 
@@ -304,7 +304,7 @@ describe("createInstance", () => {
         stdout: "",
       });
       runner.addResponse(["openssl"], { exitCode: 0 });
-      runner.addResponse(["docker", "compose", "up", "-d"], {
+      runner.addResponse(["docker", "compose", "up", "--build", "-d"], {
         exitCode: 2,
         stderr: "compose error",
       });
@@ -331,7 +331,7 @@ describe("createInstance", () => {
         stdout: "",
       });
       runner.addResponse(["openssl"], { exitCode: 0 });
-      runner.addResponse(["docker", "compose", "up", "-d"], { exitCode: 1 });
+      runner.addResponse(["docker", "compose", "up", "--build", "-d"], { exitCode: 1 });
       const deps = createDeps({ processRunner: runner, filesystem: fs });
       await createInstance(deps, "mysite");
       // Should only have prerequisite checks + openssl + compose = 5 calls
@@ -375,7 +375,7 @@ describe("createInstance", () => {
         stdout: "",
       });
       runner.addResponse(["openssl"], { exitCode: 0 });
-      runner.addResponse(["docker", "compose", "up", "-d"], { exitCode: 0 });
+      runner.addResponse(["docker", "compose", "up", "--build", "-d"], { exitCode: 0 });
       runner.addResponse(["docker", "container", "ls", "-qf", "name=mysite-wordpress-"], {
         exitCode: 0,
         stdout: "",
@@ -456,7 +456,7 @@ describe("createInstance", () => {
         stdout: "",
       });
       runner.addResponse(["openssl"], { exitCode: 0 });
-      runner.addResponse(["docker", "compose", "up", "-d"], { exitCode: 0 });
+      runner.addResponse(["docker", "compose", "up", "--build", "-d"], { exitCode: 0 });
       runner.addResponse(["docker", "container", "ls", "-qf", "name=mysite-wordpress-"], {
         exitCode: 0,
         stdout: "abc123\n",

@@ -107,8 +107,10 @@ export async function createInstance(
     "/CN=localhost",
   ]);
 
-  // docker compose up -d
-  const composeResult = processRunner.run(["docker", "compose", "up", "-d"], { cwd: instanceDir });
+  // docker compose up --build -d (--build ensures the custom image is rebuilt)
+  const composeResult = processRunner.run(["docker", "compose", "up", "--build", "-d"], {
+    cwd: instanceDir,
+  });
   if (composeResult.exitCode !== 0) {
     return {
       exitCode: composeResult.exitCode,
