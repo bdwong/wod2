@@ -7,6 +7,8 @@ const defaultConfig: CreateConfig = {
   phpVersion: "8.2",
   mysqlVersion: "5.7",
   templateName: "php8.2",
+  httpPort: 8000,
+  httpsPort: 8443,
   siteUrl: "http://127.0.0.1:8000",
 };
 

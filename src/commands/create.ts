@@ -84,6 +84,10 @@ export async function createInstance(
   const vars = buildTemplateVars(createConfig);
   installTemplate(createConfig.templateName, instanceDir, vars, filesystem, templateSource);
 
+  // Write .env file for Docker Compose port interpolation
+  const envContent = `HTTP_PORT=${createConfig.httpPort}\nHTTPS_PORT=${createConfig.httpsPort}\n`;
+  filesystem.writeFile(path.join(instanceDir, ".env"), envContent);
+
   // Generate self-signed TLS certificate
   const certDir = path.join(instanceDir, "wp-php-custom");
   processRunner.run([

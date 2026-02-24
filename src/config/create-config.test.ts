@@ -7,6 +7,8 @@ describe("resolveCreateConfig", () => {
     "PHP_VERSION",
     "MYSQL_VERSION",
     "TEMPLATE_NAME",
+    "HTTP_PORT",
+    "HTTPS_PORT",
     "SITEURL",
   ] as const;
   const savedEnv: Record<string, string | undefined> = {};
@@ -36,6 +38,8 @@ describe("resolveCreateConfig", () => {
       phpVersion: "8.2",
       mysqlVersion: "5.7",
       templateName: "php8.2",
+      httpPort: 8000,
+      httpsPort: 8443,
       siteUrl: "https://127.0.0.1:8443",
     });
   });
@@ -66,6 +70,27 @@ describe("resolveCreateConfig", () => {
     process.env.TEMPLATE_NAME = "php7.4";
     const config = resolveCreateConfig();
     expect(config.templateName).toBe("php7.4");
+  });
+
+  test("reads HTTP_PORT from env", () => {
+    clearEnvVars();
+    process.env.HTTP_PORT = "9080";
+    const config = resolveCreateConfig();
+    expect(config.httpPort).toBe(9080);
+  });
+
+  test("reads HTTPS_PORT from env", () => {
+    clearEnvVars();
+    process.env.HTTPS_PORT = "9443";
+    const config = resolveCreateConfig();
+    expect(config.httpsPort).toBe(9443);
+  });
+
+  test("derives siteUrl from httpsPort", () => {
+    clearEnvVars();
+    process.env.HTTPS_PORT = "9443";
+    const config = resolveCreateConfig();
+    expect(config.siteUrl).toBe("https://127.0.0.1:9443");
   });
 
   test("reads SITEURL from env", () => {
@@ -103,6 +128,8 @@ describe("wordpressTag", () => {
       phpVersion: "8.2",
       mysqlVersion: "5.7",
       templateName: "php8.2",
+      httpPort: 8000,
+      httpsPort: 8443,
       siteUrl: "",
     });
     expect(tag).toBe("6.7.1-php8.2-apache");
@@ -114,6 +141,8 @@ describe("wordpressTag", () => {
       phpVersion: "7.4",
       mysqlVersion: "5.7",
       templateName: "php7.4",
+      httpPort: 8000,
+      httpsPort: 8443,
       siteUrl: "",
     });
     expect(tag).toBe("5.9-php7.4-apache");
@@ -127,6 +156,8 @@ describe("wordpressCustomImageTag", () => {
       phpVersion: "8.2",
       mysqlVersion: "5.7",
       templateName: "php8.2",
+      httpPort: 8000,
+      httpsPort: 8443,
       siteUrl: "",
     });
     expect(tag).toBe("6.7.1-php8.2-custom");

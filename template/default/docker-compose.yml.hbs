@@ -19,8 +19,8 @@ services:
       volumes:
          - ./site:/var/www/html
       ports:
-         - "8000:80"
-         - "8443:443"
+         - "${HTTP_PORT:-8000}:80"
+         - "${HTTPS_PORT:-8443}:443"
       restart: always
       environment:
          WORDPRESS_DB_HOST: db:3306

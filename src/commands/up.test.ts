@@ -98,6 +98,37 @@ describe("upInstance", () => {
     expect(runner.calls[0]).toEqual(["docker", "compose", "up", "-d"]);
   });
 
+  test("writes .env file when ports are provided", () => {
+    const runner = new MockProcessRunner();
+    runner.addResponse(["docker", "compose", "up", "-d"], { exitCode: 0 });
+    runner.addResponse(["docker", "container", "ls", "-qf"], { exitCode: 0, stdout: "abc123\n" });
+    runner.addResponse(["docker", "exec"], { exitCode: 0, stdout: "WORDPRESS_DB_HOST=db:3306\n" });
+    runner.addResponse(["docker", "run"], { exitCode: 0, stdout: "http://127.0.0.1:9080\n" });
+
+    const fs = new MockFilesystem();
+    const deps = createDeps({ processRunner: runner, filesystem: fs });
+    upInstance(deps, "mysite", { httpPort: 9080, httpsPort: 9443 });
+
+    const envFile = fs.writtenFiles.get("/home/user/wod/mysite/.env");
+    expect(envFile).toBeDefined();
+    expect(envFile).toContain("HTTP_PORT=9080");
+    expect(envFile).toContain("HTTPS_PORT=9443");
+  });
+
+  test("does not write .env file when ports are not provided", () => {
+    const runner = new MockProcessRunner();
+    runner.addResponse(["docker", "compose", "up", "-d"], { exitCode: 0 });
+    runner.addResponse(["docker", "container", "ls", "-qf"], { exitCode: 0, stdout: "abc123\n" });
+    runner.addResponse(["docker", "exec"], { exitCode: 0, stdout: "WORDPRESS_DB_HOST=db:3306\n" });
+    runner.addResponse(["docker", "run"], { exitCode: 0, stdout: "http://127.0.0.1:8080\n" });
+
+    const fs = new MockFilesystem();
+    const deps = createDeps({ processRunner: runner, filesystem: fs });
+    upInstance(deps, "mysite");
+
+    expect(fs.writtenFiles.has("/home/user/wod/mysite/.env")).toBe(false);
+  });
+
   test("returns null siteUrl when querySiteUrl fails", () => {
     const runner = new MockProcessRunner();
     runner.addResponse(["docker", "compose", "up", "-d"], { exitCode: 0 });

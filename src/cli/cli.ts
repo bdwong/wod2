@@ -27,37 +27,48 @@ export function createProgram(): Command {
     .description("Create a new WordPress Docker instance")
     .argument("<name>", "Instance name")
     .argument("[backup-directory]", "Path to backup files to restore")
-    .action(async (name: string, backupDirectory?: string) => {
-      const config = resolveConfig();
-      const createConfig = resolveCreateConfig();
-      const filesystem = new RealFilesystem();
-      const templateSource = resolveTemplateSource(
-        createConfig.templateName,
-        filesystem,
-        config.wodHome,
-      );
-      const deps = {
-        processRunner: new BunProcessRunner(),
-        filesystem,
-        config,
-        createConfig,
-        templateSource,
-        sleep: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
-      };
-      const result = await createInstance(deps, name, backupDirectory);
-      if (result.error) {
-        console.error(result.error);
-      }
-      if (result.exitCode !== 0) {
-        process.exit(result.exitCode);
-      }
-      if (result.adminPassword) {
-        console.log(`Admin password: ${result.adminPassword}`);
-      }
-      if (result.siteUrl) {
-        console.log(`Website ready at ${result.siteUrl}`);
-      }
-    });
+    .option("--http-port <port>", "HTTP port (default: 8000)")
+    .option("--https-port <port>", "HTTPS port (default: 8443)")
+    .action(
+      async (
+        name: string,
+        backupDirectory: string | undefined,
+        options: { httpPort?: string; httpsPort?: string },
+      ) => {
+        const config = resolveConfig();
+        const overrides: Record<string, number> = {};
+        if (options.httpPort) overrides.httpPort = Number(options.httpPort);
+        if (options.httpsPort) overrides.httpsPort = Number(options.httpsPort);
+        const createConfig = resolveCreateConfig(overrides);
+        const filesystem = new RealFilesystem();
+        const templateSource = resolveTemplateSource(
+          createConfig.templateName,
+          filesystem,
+          config.wodHome,
+        );
+        const deps = {
+          processRunner: new BunProcessRunner(),
+          filesystem,
+          config,
+          createConfig,
+          templateSource,
+          sleep: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+        };
+        const result = await createInstance(deps, name, backupDirectory);
+        if (result.error) {
+          console.error(result.error);
+        }
+        if (result.exitCode !== 0) {
+          process.exit(result.exitCode);
+        }
+        if (result.adminPassword) {
+          console.log(`Admin password: ${result.adminPassword}`);
+        }
+        if (result.siteUrl) {
+          console.log(`Website ready at ${result.siteUrl}`);
+        }
+      },
+    );
 
   program
     .command("ls")
@@ -77,14 +88,23 @@ export function createProgram(): Command {
     .command("up")
     .description("Start a stopped WordPress instance")
     .argument("<name>", "Instance name")
-    .action((name: string) => {
+    .option("--http-port <port>", "HTTP port (override .env)")
+    .option("--https-port <port>", "HTTPS port (override .env)")
+    .action((name: string, options: { httpPort?: string; httpsPort?: string }) => {
       const config = resolveConfig();
       const deps = {
         processRunner: new BunProcessRunner(),
         filesystem: new RealFilesystem(),
         config,
       };
-      const result = upInstance(deps, name);
+      const ports =
+        options.httpPort || options.httpsPort
+          ? {
+              httpPort: Number(options.httpPort ?? 8000),
+              httpsPort: Number(options.httpsPort ?? 8443),
+            }
+          : undefined;
+      const result = upInstance(deps, name, ports);
       if (result.exitCode !== 0) {
         process.exit(result.exitCode);
       }

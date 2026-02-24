@@ -11,6 +11,8 @@ const defaultCreateConfig: CreateConfig = {
   phpVersion: "8.2",
   mysqlVersion: "5.7",
   templateName: "php8.2",
+  httpPort: 8000,
+  httpsPort: 8443,
   siteUrl: "https://127.0.0.1:8443",
 };
 
@@ -185,6 +187,39 @@ describe("createInstance", () => {
       expect(ini).toContain("upload_max_filesize=100M");
     });
 
+    test("writes .env file with default port values", async () => {
+      const fs = new MockFilesystem();
+      fs.addDirectory("/home/user/wod/other");
+      const runner = setupSuccessRunner();
+      const deps = createDeps({ processRunner: runner, filesystem: fs });
+      await createInstance(deps, "mysite");
+      const envFile = fs.writtenFiles.get("/home/user/wod/mysite/.env");
+      expect(envFile).toBeDefined();
+      expect(envFile).toContain("HTTP_PORT=8000");
+      expect(envFile).toContain("HTTPS_PORT=8443");
+    });
+
+    test("writes .env file with custom port values", async () => {
+      const fs = new MockFilesystem();
+      fs.addDirectory("/home/user/wod/other");
+      const runner = setupSuccessRunner();
+      const customConfig: CreateConfig = {
+        ...defaultCreateConfig,
+        httpPort: 9080,
+        httpsPort: 9443,
+      };
+      const deps = createDeps({
+        processRunner: runner,
+        filesystem: fs,
+        createConfig: customConfig,
+      });
+      await createInstance(deps, "mysite");
+      const envFile = fs.writtenFiles.get("/home/user/wod/mysite/.env");
+      expect(envFile).toBeDefined();
+      expect(envFile).toContain("HTTP_PORT=9080");
+      expect(envFile).toContain("HTTPS_PORT=9443");
+    });
+
     test("generates self-signed TLS certificate in wp-php-custom directory", async () => {
       const fs = new MockFilesystem();
       fs.addDirectory("/home/user/wod/other");
@@ -216,6 +251,8 @@ describe("createInstance", () => {
         phpVersion: "7.4",
         mysqlVersion: "8.0",
         templateName: "php8.2",
+        httpPort: 8000,
+        httpsPort: 8443,
         siteUrl: "http://127.0.0.1:9000",
       };
       const deps = createDeps({
