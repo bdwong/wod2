@@ -16,8 +16,8 @@ export function listInstances(deps: LsDependencies): LsResult {
   // Ensure WOD_HOME exists
   filesystem.ensureDirectory(config.wodHome);
 
-  // Get instance directories
-  const instanceNames = filesystem.listSubdirectories(config.wodHome);
+  // Get instance directories (exclude hidden directories like .template)
+  const instanceNames = filesystem.listSubdirectories(config.wodHome).filter((name) => !name.startsWith("."));
 
   if (instanceNames.length === 0) {
     return { instances: [], dockerRunning: false };

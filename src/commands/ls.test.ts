@@ -19,6 +19,20 @@ describe("listInstances", () => {
     expect(result.instances).toEqual([]);
   });
 
+  test("excludes hidden directories like .template from instance list", () => {
+    const runner = new MockProcessRunner();
+    runner.addResponse(["docker", "version"], { exitCode: 1 });
+
+    const fs = new MockFilesystem();
+    fs.setSubdirectories("/home/user/wod", [".template", "mysite"]);
+
+    const deps = createDeps({ processRunner: runner, filesystem: fs });
+    const result = listInstances(deps);
+
+    expect(result.instances).toHaveLength(1);
+    expect(result.instances[0].name).toBe("mysite");
+  });
+
   test("calls ensureDirectory on WOD_HOME", () => {
     const fs = new MockFilesystem();
     const deps = createDeps({ filesystem: fs });
