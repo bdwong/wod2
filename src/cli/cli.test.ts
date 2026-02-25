@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createProgram } from "./cli.ts";
+import { createProgram, validateInstanceName } from "./cli.ts";
 
 describe("createProgram", () => {
   test("returns a Commander program", () => {
@@ -45,5 +45,29 @@ describe("createProgram", () => {
     const createCommand = program.commands.find((cmd) => cmd.name() === "create");
     const option = createCommand?.options.find((opt) => opt.long === "--template");
     expect(option).toBeDefined();
+  });
+});
+
+describe("validateInstanceName", () => {
+  test("accepts simple names", () => {
+    expect(validateInstanceName("mysite")).toBeNull();
+    expect(validateInstanceName("my-site")).toBeNull();
+    expect(validateInstanceName("site123")).toBeNull();
+  });
+
+  test("rejects names with forward slashes", () => {
+    const result = validateInstanceName("/mnt/e/backups/websites/btmcan.org/");
+    expect(result).toContain("must not contain slashes");
+    expect(result).toContain("Did you forget the instance name argument?");
+  });
+
+  test("rejects names with backslashes", () => {
+    const result = validateInstanceName("C:\\Users\\backups");
+    expect(result).toContain("must not contain slashes");
+  });
+
+  test("rejects names starting with a dot", () => {
+    const result = validateInstanceName(".hidden");
+    expect(result).toContain("must not start with a dot");
   });
 });

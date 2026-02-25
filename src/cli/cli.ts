@@ -15,6 +15,16 @@ import { BunProcessRunner } from "../docker/process-runner.ts";
 import { resolveTemplateSource } from "../templates/template-resolver.ts";
 import { RealFilesystem } from "../utils/filesystem.ts";
 
+export function validateInstanceName(name: string): string | null {
+  if (/[/\\]/.test(name)) {
+    return `Invalid instance name "${name}": must not contain slashes. Did you forget the instance name argument?`;
+  }
+  if (name.startsWith(".")) {
+    return `Invalid instance name "${name}": must not start with a dot.`;
+  }
+  return null;
+}
+
 export function createProgram(): Command {
   const program = new Command();
 
@@ -46,6 +56,11 @@ export function createProgram(): Command {
           template?: string;
         },
       ) => {
+        const nameError = validateInstanceName(name);
+        if (nameError) {
+          console.error(nameError);
+          process.exit(1);
+        }
         const config = resolveConfig();
         const overrides: Record<string, string | number> = {};
         if (options.httpPort) overrides.httpPort = Number(options.httpPort);
@@ -105,6 +120,11 @@ export function createProgram(): Command {
     .option("--http-port <port>", "HTTP port (override .env)")
     .option("--https-port <port>", "HTTPS port (override .env)")
     .action((name: string, options: { httpPort?: string; httpsPort?: string }) => {
+      const nameError = validateInstanceName(name);
+      if (nameError) {
+        console.error(nameError);
+        process.exit(1);
+      }
       const config = resolveConfig();
       const deps = {
         processRunner: new BunProcessRunner({ verbose: program.opts().verbose }),
@@ -132,6 +152,11 @@ export function createProgram(): Command {
     .description("Stop a running WordPress instance")
     .argument("<name>", "Instance name")
     .action((name: string) => {
+      const nameError = validateInstanceName(name);
+      if (nameError) {
+        console.error(nameError);
+        process.exit(1);
+      }
       const config = resolveConfig();
       const deps = {
         processRunner: new BunProcessRunner({ verbose: program.opts().verbose }),
@@ -149,6 +174,11 @@ export function createProgram(): Command {
     .description("Remove an instance completely")
     .argument("<name>", "Instance name")
     .action((name: string) => {
+      const nameError = validateInstanceName(name);
+      if (nameError) {
+        console.error(nameError);
+        process.exit(1);
+      }
       const config = resolveConfig();
       const deps = {
         processRunner: new BunProcessRunner({ verbose: program.opts().verbose }),
@@ -181,6 +211,11 @@ export function createProgram(): Command {
           template?: string;
         },
       ) => {
+        const nameError = validateInstanceName(name);
+        if (nameError) {
+          console.error(nameError);
+          process.exit(1);
+        }
         const config = resolveConfig();
         const overrides: Record<string, string | number> = {};
         if (options.phpVersion) overrides.phpVersion = options.phpVersion;
@@ -219,6 +254,11 @@ export function createProgram(): Command {
     .argument("<name>", "Instance name")
     .argument("<backup-directory>", "Path to backup files")
     .action(async (name: string, backupDirectory: string) => {
+      const nameError = validateInstanceName(name);
+      if (nameError) {
+        console.error(nameError);
+        process.exit(1);
+      }
       const config = resolveConfig();
       const deps = {
         processRunner: new BunProcessRunner({ verbose: program.opts().verbose }),
@@ -253,6 +293,11 @@ export function createProgram(): Command {
     .argument("[wp-args...]", "wp-cli arguments")
     .allowUnknownOption()
     .action((name: string, wpArgs: string[]) => {
+      const nameError = validateInstanceName(name);
+      if (nameError) {
+        console.error(nameError);
+        process.exit(1);
+      }
       const deps = {
         processRunner: new BunProcessRunner({ verbose: program.opts().verbose }),
         isTTY: process.stdin.isTTY ?? false,
