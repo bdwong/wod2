@@ -51,12 +51,28 @@ export class BunProcessRunner implements ProcessRunner {
     if (this.verbose) {
       console.error(`$ ${command.join(" ")}`);
     }
+    // Use "pipe" for stdin instead of passing ReadableStream directly,
+    // because Bun's compiled single-file executables don't support
+    // ReadableStream as stdin (TODOError). Workaround added 2026-02-25.
     const proc = Bun.spawn(command, {
       cwd: options?.cwd,
-      stdin: options?.stdin ?? undefined,
+      stdin: options?.stdin ? "pipe" : undefined,
       stdout: "pipe",
       stderr: this.verbose ? "inherit" : "pipe",
     });
+    if (options?.stdin) {
+      const reader = options.stdin.getReader();
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          proc.stdin?.write(value);
+        }
+      } finally {
+        reader.releaseLock();
+        proc.stdin?.end();
+      }
+    }
     const exitCode = await proc.exited;
     const stdout = await new Response(proc.stdout).text();
     const stderr = this.verbose ? "" : await new Response(proc.stderr).text();
