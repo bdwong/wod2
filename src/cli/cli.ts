@@ -7,6 +7,7 @@ import { formatLsOutput } from "../commands/ls-formatter.ts";
 import { restoreInstance } from "../commands/restore.ts";
 import { rmInstance } from "../commands/rm.ts";
 import { upInstance } from "../commands/up.ts";
+import { updateInstance } from "../commands/update.ts";
 import { buildWpCommand } from "../commands/wp.ts";
 import { resolveConfig } from "../config/config.ts";
 import { resolveCreateConfig } from "../config/create-config.ts";
@@ -163,6 +164,54 @@ export function createProgram(): Command {
         process.exit(result.exitCode);
       }
     });
+
+  program
+    .command("update")
+    .description("Update an instance with new PHP/WordPress/MySQL versions")
+    .argument("<name>", "Instance name")
+    .option("--php-version <version>", "PHP version")
+    .option("--wordpress-version <version>", "WordPress version")
+    .option("--template <name>", "Template name")
+    .action(
+      (
+        name: string,
+        options: {
+          phpVersion?: string;
+          wordpressVersion?: string;
+          template?: string;
+        },
+      ) => {
+        const config = resolveConfig();
+        const overrides: Record<string, string | number> = {};
+        if (options.phpVersion) overrides.phpVersion = options.phpVersion;
+        if (options.wordpressVersion) overrides.wordpressVersion = options.wordpressVersion;
+        if (options.template) overrides.templateName = options.template;
+        const createConfig = resolveCreateConfig(overrides);
+        const filesystem = new RealFilesystem();
+        const templateSource = resolveTemplateSource(
+          createConfig.templateName,
+          filesystem,
+          config.wodHome,
+        );
+        const deps = {
+          processRunner: new BunProcessRunner({ verbose: program.opts().verbose }),
+          filesystem,
+          config,
+          createConfig,
+          templateSource,
+        };
+        const result = updateInstance(deps, name);
+        if (result.error) {
+          console.error(result.error);
+        }
+        if (result.exitCode !== 0) {
+          process.exit(result.exitCode);
+        }
+        if (result.siteUrl) {
+          console.log(`Website ready at ${result.siteUrl}`);
+        }
+      },
+    );
 
   program
     .command("restore")
