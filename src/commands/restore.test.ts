@@ -399,6 +399,10 @@ describe("restoreInstance", () => {
       expect(pipeline).toContain("wp db import -");
       expect(pipeline).toContain("sql_mode");
       expect(pipeline).toContain("/^\\/\\*M!/d");
+      // sed -e args must use double quotes, not single quotes, to avoid
+      // "unexpected EOF while looking for matching `'" errors in bash -c
+      expect(pipeline).toContain('-e "');
+      expect(pipeline).not.toContain("-e '");
     });
   });
 

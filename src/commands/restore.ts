@@ -171,7 +171,7 @@ export function restoreInstance(
     "/^# -----/a\\/*!40101 SET sql_mode=\\'ONLY_FULL_GROUP_BY,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION\\' */;",
     "/^\\/\\*M!/d",
   ];
-  const sedArgs = sedTransforms.map((t) => `-e '${t}'`).join(" ");
+  const sedArgs = sedTransforms.map((t) => `-e "${t}"`).join(" ");
 
   const importResult = processRunner.run([
     "bash",
