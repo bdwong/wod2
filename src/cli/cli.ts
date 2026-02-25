@@ -29,16 +29,28 @@ export function createProgram(): Command {
     .argument("[backup-directory]", "Path to backup files to restore")
     .option("--http-port <port>", "HTTP port (default: 8000)")
     .option("--https-port <port>", "HTTPS port (default: 8443)")
+    .option("--php-version <version>", "PHP version (default: 8.5)")
+    .option("--wordpress-version <version>", "WordPress version (default: 6.9.1)")
+    .option("--template <name>", "Template name (default: custom)")
     .action(
       async (
         name: string,
         backupDirectory: string | undefined,
-        options: { httpPort?: string; httpsPort?: string },
+        options: {
+          httpPort?: string;
+          httpsPort?: string;
+          phpVersion?: string;
+          wordpressVersion?: string;
+          template?: string;
+        },
       ) => {
         const config = resolveConfig();
-        const overrides: Record<string, number> = {};
+        const overrides: Record<string, string | number> = {};
         if (options.httpPort) overrides.httpPort = Number(options.httpPort);
         if (options.httpsPort) overrides.httpsPort = Number(options.httpsPort);
+        if (options.phpVersion) overrides.phpVersion = options.phpVersion;
+        if (options.wordpressVersion) overrides.wordpressVersion = options.wordpressVersion;
+        if (options.template) overrides.templateName = options.template;
         const createConfig = resolveCreateConfig(overrides);
         const filesystem = new RealFilesystem();
         const templateSource = resolveTemplateSource(

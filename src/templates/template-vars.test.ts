@@ -42,4 +42,39 @@ describe("buildTemplateVars", () => {
     expect(vars.wordpressCustomImageTag).toBe("5.9-php7.4-custom");
     expect(vars.mysqlVersion).toBe("8.0");
   });
+
+  test("PHP 7.1: phpGdLegacy=true, phpMcryptAvailable=true, phpAvifSupported=false", () => {
+    const vars = buildTemplateVars({ ...defaultConfig, phpVersion: "7.1" });
+    expect(vars.phpGdLegacy).toBe(true);
+    expect(vars.phpMcryptAvailable).toBe(true);
+    expect(vars.phpAvifSupported).toBe(false);
+  });
+
+  test("PHP 7.4: phpGdLegacy=false, phpMcryptAvailable=false, phpAvifSupported=false", () => {
+    const vars = buildTemplateVars({ ...defaultConfig, phpVersion: "7.4" });
+    expect(vars.phpGdLegacy).toBe(false);
+    expect(vars.phpMcryptAvailable).toBe(false);
+    expect(vars.phpAvifSupported).toBe(false);
+  });
+
+  test("PHP 8.0: phpGdLegacy=false, phpMcryptAvailable=false, phpAvifSupported=false", () => {
+    const vars = buildTemplateVars({ ...defaultConfig, phpVersion: "8.0" });
+    expect(vars.phpGdLegacy).toBe(false);
+    expect(vars.phpMcryptAvailable).toBe(false);
+    expect(vars.phpAvifSupported).toBe(false);
+  });
+
+  test("PHP 8.1: phpGdLegacy=false, phpMcryptAvailable=false, phpAvifSupported=true", () => {
+    const vars = buildTemplateVars({ ...defaultConfig, phpVersion: "8.1" });
+    expect(vars.phpGdLegacy).toBe(false);
+    expect(vars.phpMcryptAvailable).toBe(false);
+    expect(vars.phpAvifSupported).toBe(true);
+  });
+
+  test("PHP 8.2 (default): phpGdLegacy=false, phpMcryptAvailable=false, phpAvifSupported=true", () => {
+    const vars = buildTemplateVars(defaultConfig);
+    expect(vars.phpGdLegacy).toBe(false);
+    expect(vars.phpMcryptAvailable).toBe(false);
+    expect(vars.phpAvifSupported).toBe(true);
+  });
 });

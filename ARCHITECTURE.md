@@ -36,6 +36,12 @@ consists of:
 - A **local directory** holding the `docker-compose.yml`, custom Dockerfile, and
   the WordPress site files
 
+A key aspiration is the ability to quickly bring up **any version of WordPress
+on any version of PHP** for debugging and compatibility testing. The `custom`
+template (now the default) builds from bare `php:X.Y-apache` images and installs
+WordPress directly from wordpress.org, enabling arbitrary PHP + WordPress version
+combinations beyond what Docker Hub's official `wordpress` image publishes.
+
 WOD wraps Docker Compose and wp-cli to provide a simple interface for:
 
 - Creating fresh WordPress installations with configurable PHP/MySQL/WP versions
@@ -178,7 +184,7 @@ ls     ──► Scan WOD_HOME for subdirectories
 | WordPress container | `<name>-wordpress-1` | `staging-b-wordpress-1` |
 | Database container | `<name>-db-1` | `staging-b-db-1` |
 | Database volume | `<name>_db_data` | `staging-b_db_data` |
-| Custom Docker image | `wordpress:<WP_VERSION>-php<PHP_VERSION>-custom` | `wordpress:6.7.1-php8.2-custom` |
+| Custom Docker image | `wordpress:<WP_VERSION>-php<PHP_VERSION>-custom` | `wordpress:6.9.1-php8.5-custom` |
 
 > **Note on container naming:** Docker Compose names containers as
 > `<project>-<service>-<number>`. The project name defaults to the directory
@@ -259,11 +265,11 @@ dist/wod                             # Single compiled executable (all templates
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `WOD_HOME` | `~/wod` | Root directory where all instances are stored |
-| `TEMPLATE_NAME` | `php8.2` | Which template to use |
-| `WORDPRESS_VERSION` | `6.7.1` | WordPress version number |
-| `PHP_VERSION` | `8.2` | PHP version number |
+| `TEMPLATE_NAME` | `custom` | Which template to use |
+| `WORDPRESS_VERSION` | `6.9.1` | WordPress version number |
+| `PHP_VERSION` | `8.5` | PHP version number |
 | `MYSQL_VERSION` | `5.7` | MySQL version number |
-| `SITEURL` | `http://127.0.0.1:8000` | Local URL for the WordPress site |
+| `SITEURL` | `https://127.0.0.1:8443` | Local URL for the WordPress site |
 
 > **Removed from original:** `SCRIPT_HOME`, `TEMPLATE_DIR`, `WORDPRESS_TAG`,
 > and `BACKUP_PREFIX` were specific to the Bash implementation. In wod2,
@@ -289,8 +295,8 @@ export $(grep -v '^#' $HOME/.config/wod/wod.conf | xargs -d '\n') &>/dev/null
 
 Example contents:
 ```
-WORDPRESS_VERSION=6.7.1
-PHP_VERSION=8.2
+WORDPRESS_VERSION=6.9.1
+PHP_VERSION=8.5
 MYSQL_VERSION=5.7
 SITEURL=http://127.0.0.1:9000
 TEMPLATE_NAME=php8.2
@@ -760,11 +766,14 @@ Handlebars templates receive a `TemplateVars` object with the following fields:
 
 | Variable | Example Value | Source |
 |----------|--------------|--------|
-| `wordpressVersion` | `6.7.1` | `CreateConfig.wordpressVersion` |
+| `wordpressVersion` | `6.9.1` | `CreateConfig.wordpressVersion` |
 | `phpVersion` | `8.2` | `CreateConfig.phpVersion` |
 | `mysqlVersion` | `5.7` | `CreateConfig.mysqlVersion` |
-| `wordpressTag` | `6.7.1-php8.2-apache` | Computed: `<WP>-php<PHP>-apache` |
-| `wordpressCustomImageTag` | `6.7.1-php8.2-custom` | Computed: `<WP>-php<PHP>-custom` |
+| `wordpressTag` | `6.9.1-php8.5-apache` | Computed: `<WP>-php<PHP>-apache` |
+| `wordpressCustomImageTag` | `6.9.1-php8.5-custom` | Computed: `<WP>-php<PHP>-custom` |
+| `phpGdLegacy` | `false` | `true` for PHP < 7.4 (old-style `--with-freetype-dir` GD flags) |
+| `phpAvifSupported` | `true` | `true` for PHP >= 8.1 (adds `--with-avif` to GD configure) |
+| `phpMcryptAvailable` | `false` | `true` for PHP < 7.2 (installs mcrypt extension) |
 
 ### 9.4 Template Bundling and Resolution
 
@@ -784,14 +793,21 @@ The `wod install` command extracts all bundled templates to
 
 ### 9.5 Available Templates
 
-| Template | PHP | Notes |
-|----------|-----|-------|
-| `php8.2` | 8.2 | Default template |
+| Template | Base Image | Notes |
+|----------|-----------|-------|
+| `custom` | `php:X.Y-apache` | **Default.** Builds from bare PHP image, downloads WordPress from wordpress.org. Supports any PHP + WordPress version combination. Uses Handlebars conditionals for PHP version differences (GD flags, avif, mcrypt). |
+| `default` | `wordpress:X-phpY-apache` | PHP 7.1 + mcrypt (original WOD default) |
+| `no-mcrypt` | `wordpress:X-phpY-apache` | PHP 7.1, no mcrypt |
+| `php7.4` | `wordpress:X-phpY-apache` | PHP 7.4 |
+| `php8.1` | `wordpress:X-phpY-apache` | PHP 8.1 |
+| `php8.2` | `wordpress:X-phpY-apache` | PHP 8.2 |
 
-> The original Bash WOD shipped templates for PHP 7.1 (with and without
-> mcrypt), PHP 7.4, PHP 8.1, and PHP 8.2. The wod2 reimplementation currently
-> ships only the `php8.2` template. Legacy PHP templates (which required
-> different `gd` configure syntax and mcrypt extensions) have been dropped.
+> The `custom` template is now the default. It bundles the official WordPress
+> Docker entrypoint script and wp-config template (Apache-2.0 licensed from
+> `docker-library/wordpress`) and handles PHP version differences via Handlebars
+> conditionals. The legacy templates (`default`, `no-mcrypt`, `php7.4`, `php8.1`,
+> `php8.2`) remain available for backward compatibility and use the official
+> `wordpress` Docker Hub images as their base.
 
 ### 9.6 docker-compose.yml.hbs Template
 
@@ -818,7 +834,8 @@ services:
       volumes:
          - ./site:/var/www/html
       ports:
-         - "8000:80"
+         - "${HTTP_PORT:-8000}:80"
+         - "${HTTPS_PORT:-8443}:443"
       restart: always
       environment:
          WORDPRESS_DB_HOST: db:3306
@@ -834,38 +851,28 @@ volumes:
 - The `image` directive tags the built image for reuse.
 - Site files are bind-mounted at `./site:/var/www/html`.
 - Database data persists in the named volume `db_data`.
-- Port 8000 is mapped to container port 80.
+- Ports are configurable via `.env` file: HTTP defaults to 8000, HTTPS to 8443.
+- SSL is supported via self-signed certificates generated at create time.
 - Database credentials are hardcoded (`wordpress`/`wordpress`). This is
   acceptable because these are local development instances only.
 
 ### 9.7 Dockerfile.hbs Template
 
-The Dockerfile builds a custom WordPress image:
+The Dockerfile builds a custom WordPress image. The `custom` template builds
+from `php:X.Y-apache` and installs WordPress from wordpress.org, while legacy
+templates build from `wordpress:X-phpY-apache`. All templates include:
 
-```dockerfile
-FROM wordpress:{{wordpressTag}}
+- PHP extension installation (GD, imagick, bcmath, etc.)
+- Upload limit configuration via `default.ini`
+- Apache `AllowOverride All` for `.htaccess` support
+- Self-signed SSL certificate for HTTPS
 
-# Install PHP extensions for image processing
-RUN apt-get update && apt-get install -y \
-        libfreetype6-dev \
-        libjpeg62-turbo-dev \
-        libpng-dev \
-    && docker-php-ext-install -j$(nproc) iconv \
-    && docker-php-ext-configure gd \
-    && docker-php-ext-install -j$(nproc) gd
-
-# PHP config: increase upload limits
-COPY default.ini /usr/local/etc/php/conf.d/default.ini
-
-# Apache: AllowOverride All for .htaccess support
-RUN sed -i \
-        -e '/<\/VirtualHost>/i\' \
-        -e '        <Directory "/var/www/html">\' \
-        -e '                Options Indexes FollowSymLinks MultiViews\' \
-        -e '                AllowOverride All\' \
-        -e '        </Directory>' \
-        /etc/apache2/sites-available/000-default.conf
-```
+The `custom` template additionally uses Handlebars conditionals to handle
+PHP version differences:
+- **GD configure flags:** Legacy (`--with-freetype-dir`) for PHP < 7.4, modern
+  (`--with-freetype`) for PHP >= 7.4, with `--with-avif` added for PHP >= 8.1
+- **mcrypt extension:** Only installed for PHP < 7.2
+- **AVIF support:** `libavif-dev` package only installed for PHP >= 8.1
 
 ### 9.8 default.ini
 
@@ -1014,7 +1021,7 @@ This allows WOD to coexist with a globally installed wp-cli.
 
 ```
 wod create devsite
-# → Creates a fresh WordPress 6.7.1 instance at http://127.0.0.1:8000
+# → Creates a fresh WordPress 6.9.1 instance at http://127.0.0.1:8000
 # → Admin user: admin, password: auto-generated
 ```
 
@@ -1039,8 +1046,15 @@ wod wp testsite option set home http://127.0.0.1:8000
 ### 13.4 Test with Different PHP Versions
 
 ```
-TEMPLATE_NAME=php7.4 PHP_VERSION=7.4 wod create legacy-test
-TEMPLATE_NAME=php8.2 PHP_VERSION=8.2 wod create modern-test
+# Using CLI flags (recommended)
+wod create legacy-test --php-version 7.4 --wordpress-version 5.9
+wod create modern-test --php-version 8.3 --wordpress-version 6.9.1
+
+# Using environment variables
+PHP_VERSION=7.4 WORDPRESS_VERSION=5.9 wod create legacy-test
+
+# Using a legacy template instead of the custom template
+wod create compat-test --template php8.2
 ```
 
 ### 13.5 Manage Multiple Sites
@@ -1098,9 +1112,9 @@ These items are documented in `TODO.md` and observed in the code:
    computed WordPress or MySQL Docker image tag actually exists before
    attempting to build/pull.
 
-2. **Port not configurable per instance:** The port `8000` is hardcoded in the
-   docker-compose template. Running multiple instances simultaneously requires
-   manually editing the generated `docker-compose.yml`.
+2. **Port conflicts with multiple instances:** Ports are configurable via
+   `--http-port` and `--https-port` flags, but users must manually choose
+   non-conflicting ports when running multiple instances simultaneously.
 
 3. **Container name matching with hyphens:** Instance names containing
    hyphens may cause issues with Docker container lookups due to historical
@@ -1121,8 +1135,8 @@ These items are documented in `TODO.md` and observed in the code:
 7. **sudo requirement:** File operations on `site/wp-content/` require sudo
    because the files are owned by `www-data` (UID 33) inside the container.
 
-8. **Single port conflicts:** If multiple instances need to run
-   simultaneously, their ports must be manually differentiated.
+8. **~~Single port conflicts:~~** *(Resolved — ports are now configurable via
+   `--http-port` and `--https-port` CLI flags.)*
 
 9. **.htaccess handling:** The restore process may overwrite existing
    `.htaccess` files without backup.

@@ -1,21 +1,56 @@
-import defaultDockerComposeHbs from "../../template/default/docker-compose.yml.hbs" with { type: "text" };
-import defaultDockerfileHbs from "../../template/default/wp-php-custom/Dockerfile.hbs" with { type: "text" };
-import defaultDefaultIni from "../../template/default/wp-php-custom/default.ini" with { type: "text" };
-
-import noMcryptDockerComposeHbs from "../../template/no-mcrypt/docker-compose.yml.hbs" with { type: "text" };
-import noMcryptDockerfileHbs from "../../template/no-mcrypt/wp-php-custom/Dockerfile.hbs" with { type: "text" };
-import noMcryptDefaultIni from "../../template/no-mcrypt/wp-php-custom/default.ini" with { type: "text" };
-
-import php74DockerComposeHbs from "../../template/php7.4/docker-compose.yml.hbs" with { type: "text" };
-import php74DockerfileHbs from "../../template/php7.4/wp-php-custom/Dockerfile.hbs" with { type: "text" };
+import customDockerComposeHbs from "../../template/custom/docker-compose.yml.hbs" with {
+  type: "text",
+};
+import customDockerfileHbs from "../../template/custom/wp-php-custom/Dockerfile.hbs" with {
+  type: "text",
+};
+import customDefaultIni from "../../template/custom/wp-php-custom/default.ini" with {
+  type: "text",
+};
+import customEntrypoint from "../../template/custom/wp-php-custom/docker-entrypoint.sh" with {
+  type: "text",
+};
+import customWpConfig from "../../template/custom/wp-php-custom/wp-config-docker.php" with {
+  type: "text",
+};
+import defaultDockerComposeHbs from "../../template/default/docker-compose.yml.hbs" with {
+  type: "text",
+};
+import defaultDockerfileHbs from "../../template/default/wp-php-custom/Dockerfile.hbs" with {
+  type: "text",
+};
+import defaultDefaultIni from "../../template/default/wp-php-custom/default.ini" with {
+  type: "text",
+};
+import noMcryptDockerComposeHbs from "../../template/no-mcrypt/docker-compose.yml.hbs" with {
+  type: "text",
+};
+import noMcryptDockerfileHbs from "../../template/no-mcrypt/wp-php-custom/Dockerfile.hbs" with {
+  type: "text",
+};
+import noMcryptDefaultIni from "../../template/no-mcrypt/wp-php-custom/default.ini" with {
+  type: "text",
+};
+import php74DockerComposeHbs from "../../template/php7.4/docker-compose.yml.hbs" with {
+  type: "text",
+};
+import php74DockerfileHbs from "../../template/php7.4/wp-php-custom/Dockerfile.hbs" with {
+  type: "text",
+};
 import php74DefaultIni from "../../template/php7.4/wp-php-custom/default.ini" with { type: "text" };
-
-import php81DockerComposeHbs from "../../template/php8.1/docker-compose.yml.hbs" with { type: "text" };
-import php81DockerfileHbs from "../../template/php8.1/wp-php-custom/Dockerfile.hbs" with { type: "text" };
+import php81DockerComposeHbs from "../../template/php8.1/docker-compose.yml.hbs" with {
+  type: "text",
+};
+import php81DockerfileHbs from "../../template/php8.1/wp-php-custom/Dockerfile.hbs" with {
+  type: "text",
+};
 import php81DefaultIni from "../../template/php8.1/wp-php-custom/default.ini" with { type: "text" };
-
-import php82DockerComposeHbs from "../../template/php8.2/docker-compose.yml.hbs" with { type: "text" };
-import php82DockerfileHbs from "../../template/php8.2/wp-php-custom/Dockerfile.hbs" with { type: "text" };
+import php82DockerComposeHbs from "../../template/php8.2/docker-compose.yml.hbs" with {
+  type: "text",
+};
+import php82DockerfileHbs from "../../template/php8.2/wp-php-custom/Dockerfile.hbs" with {
+  type: "text",
+};
 import php82DefaultIni from "../../template/php8.2/wp-php-custom/default.ini" with { type: "text" };
 
 export interface BundledTemplateFile {
@@ -67,6 +102,16 @@ export const BUNDLED_TEMPLATES: BundledTemplate[] = [
       { relativePath: "docker-compose.yml.hbs", content: php82DockerComposeHbs },
       { relativePath: "wp-php-custom/Dockerfile.hbs", content: php82DockerfileHbs },
       { relativePath: "wp-php-custom/default.ini", content: php82DefaultIni },
+    ],
+  },
+  {
+    name: "custom",
+    files: [
+      { relativePath: "docker-compose.yml.hbs", content: customDockerComposeHbs },
+      { relativePath: "wp-php-custom/Dockerfile.hbs", content: customDockerfileHbs },
+      { relativePath: "wp-php-custom/default.ini", content: customDefaultIni },
+      { relativePath: "wp-php-custom/docker-entrypoint.sh", content: customEntrypoint },
+      { relativePath: "wp-php-custom/wp-config-docker.php", content: customWpConfig },
     ],
   },
 ];

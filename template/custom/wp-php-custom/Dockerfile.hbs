@@ -1,0 +1,88 @@
+FROM php:{{phpVersion}}-apache
+
+# OS dependencies for PHP extensions
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ghostscript \
+        libfreetype6-dev \
+        libjpeg62-turbo-dev \
+        libmagickwand-dev \
+        libpng-dev \
+        libwebp-dev \
+        libzip-dev \
+        libicu-dev \
+{{#if phpAvifSupported}}
+        libavif-dev \
+{{/if}}
+{{#if phpMcryptAvailable}}
+        libmcrypt-dev \
+{{/if}}
+    && rm -rf /var/lib/apt/lists/*
+
+# PHP extensions: bcmath, exif, intl, mysqli, zip
+RUN docker-php-ext-install -j$(nproc) \
+        bcmath \
+        exif \
+        intl \
+        mysqli \
+        zip
+
+# PHP extension: GD (configure flags vary by PHP version)
+{{#if phpGdLegacy}}
+RUN docker-php-ext-configure gd --with-freetype-dir=/usr/include/ --with-jpeg-dir=/usr/include/ --with-webp-dir=/usr/include/ \
+    && docker-php-ext-install -j$(nproc) gd
+{{else}}
+{{#if phpAvifSupported}}
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp --with-avif \
+    && docker-php-ext-install -j$(nproc) gd
+{{else}}
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
+    && docker-php-ext-install -j$(nproc) gd
+{{/if}}
+{{/if}}
+
+# PHP extension: imagick
+RUN pecl install imagick && docker-php-ext-enable imagick
+
+{{#if phpMcryptAvailable}}
+# PHP extension: mcrypt (removed in PHP 7.2+)
+RUN docker-php-ext-install -j$(nproc) mcrypt
+
+{{/if}}
+# Apache modules
+RUN a2enmod rewrite expires remoteip ssl
+
+# PHP config: increase upload limits
+COPY default.ini /usr/local/etc/php/conf.d/default.ini
+
+# Download and install WordPress
+ENV WORDPRESS_VERSION={{wordpressVersion}}
+RUN curl -o wordpress.tar.gz -fSL "https://wordpress.org/wordpress-${WORDPRESS_VERSION}.tar.gz" \
+    && tar -xzf wordpress.tar.gz -C /usr/src/ \
+    && rm wordpress.tar.gz \
+    && chown -R www-data:www-data /usr/src/wordpress
+
+# Copy entrypoint and wp-config template
+COPY docker-entrypoint.sh /usr/local/bin/
+COPY wp-config-docker.php /usr/src/wordpress/wp-config-docker.php
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Apache: AllowOverride All for .htaccess support
+RUN sed -i \
+        -e '/<\/VirtualHost>/i\' \
+        -e '        <Directory "/var/www/html">\' \
+        -e '                Options Indexes FollowSymLinks MultiViews\' \
+        -e '                AllowOverride All\' \
+        -e '        </Directory>' \
+        /etc/apache2/sites-available/000-default.conf
+
+# SSL: install self-signed certificate
+COPY cert.pem /etc/ssl/certs/cert.pem
+COPY cert.key /etc/ssl/private/cert.key
+RUN sed -i \
+        -e "s/^\s*SSLCertificateFile\s.*/\t\tSSLCertificateFile \/etc\/ssl\/certs\/cert.pem/" \
+        -e "s/^\s*SSLCertificateKeyFile\s.*/\t\tSSLCertificateKeyFile \/etc\/ssl\/private\/cert.key/" \
+        /etc/apache2/sites-available/default-ssl.conf \
+    && a2ensite default-ssl
+
+ENTRYPOINT ["docker-entrypoint.sh"]
+CMD ["apache2-foreground"]

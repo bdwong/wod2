@@ -34,10 +34,10 @@ describe("resolveCreateConfig", () => {
     clearEnvVars();
     const config = resolveCreateConfig();
     expect(config).toEqual({
-      wordpressVersion: "6.7.1",
-      phpVersion: "8.2",
+      wordpressVersion: "6.9.1",
+      phpVersion: "8.5",
       mysqlVersion: "5.7",
-      templateName: "php8.2",
+      templateName: "custom",
       httpPort: 8000,
       httpsPort: 8443,
       siteUrl: "https://127.0.0.1:8443",
@@ -116,8 +116,8 @@ describe("resolveCreateConfig", () => {
     clearEnvVars();
     const config = resolveCreateConfig({ siteUrl: "http://localhost:3000" });
     expect(config.siteUrl).toBe("http://localhost:3000");
-    expect(config.wordpressVersion).toBe("6.7.1");
-    expect(config.phpVersion).toBe("8.2");
+    expect(config.wordpressVersion).toBe("6.9.1");
+    expect(config.phpVersion).toBe("8.5");
   });
 });
 

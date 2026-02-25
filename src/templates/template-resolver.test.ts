@@ -18,7 +18,14 @@ describe("resolveTemplateSource", () => {
     expect(source).toBeInstanceOf(BundledTemplateSource);
   });
 
-  test.each(["default", "no-mcrypt", "php7.4", "php8.1", "php8.2"])("resolves bundled template '%s'", (name) => {
+  test.each([
+    "default",
+    "no-mcrypt",
+    "php7.4",
+    "php8.1",
+    "php8.2",
+    "custom",
+  ])("resolves bundled template '%s'", (name) => {
     const fs = new MockFilesystem();
     fs.addDirectory("/home/user/wod");
     const source = resolveTemplateSource(name, fs, "/home/user/wod");
