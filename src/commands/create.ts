@@ -180,7 +180,11 @@ export async function createInstance(
 
   // Restore backup if backupDir was provided
   if (backupDir) {
-    const restoreResult = restoreInstance({ processRunner, filesystem, config }, name, backupDir);
+    const restoreResult = await restoreInstance(
+      { processRunner, filesystem, config },
+      name,
+      backupDir,
+    );
     if (restoreResult.exitCode !== 0) {
       return {
         exitCode: restoreResult.exitCode,

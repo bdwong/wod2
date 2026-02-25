@@ -1,4 +1,6 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
+import { createGunzip } from "node:zlib";
 import type { WodConfig } from "../config/config.ts";
 import { targetDir } from "../config/config.ts";
 import { getWordPressEnvVars } from "../docker/docker.ts";
@@ -19,11 +21,128 @@ export interface RestoreResult {
 
 const CONTENT_TYPES = ["plugins", "themes", "uploads", "others"] as const;
 
-export function restoreInstance(
+const SQL_MODE_DIRECTIVE =
+  "/*!40101 SET sql_mode='ONLY_FULL_GROUP_BY,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION' */;";
+
+/**
+ * Transform SQL dump content:
+ * - Remove lines starting with /​*M! (MariaDB directives)
+ * - After lines starting with # -----, insert SQL mode directive
+ */
+export function transformSql(sql: string): string {
+  const lines = sql.split("\n");
+  const result: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith("/*M!")) continue;
+    result.push(line);
+    if (line.startsWith("# -----")) {
+      result.push(SQL_MODE_DIRECTIVE);
+    }
+  }
+  return result.join("\n");
+}
+
+/**
+ * Read the first N lines from a gzipped file using Node.js streams.
+ */
+function readGzipHeader(filePath: string, maxLines: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const input = fs.createReadStream(filePath);
+    const gunzip = createGunzip();
+    const chunks: Buffer[] = [];
+    let lineCount = 0;
+    let done = false;
+
+    const stream = input.pipe(gunzip);
+
+    stream.on("data", (chunk: Buffer) => {
+      if (done) return;
+      chunks.push(chunk);
+      const text = Buffer.concat(chunks).toString("utf-8");
+      lineCount = text.split("\n").length - 1;
+      if (lineCount >= maxLines) {
+        done = true;
+        stream.destroy();
+        input.destroy();
+        const lines = text.split("\n").slice(0, maxLines);
+        resolve(lines.join("\n"));
+      }
+    });
+
+    stream.on("end", () => {
+      if (!done) {
+        resolve(Buffer.concat(chunks).toString("utf-8"));
+      }
+    });
+
+    stream.on("error", (err: Error) => {
+      if (!done) {
+        reject(err);
+      }
+    });
+  });
+}
+
+/**
+ * Create a ReadableStream from a gzipped file that decompresses and transforms the SQL.
+ */
+function createTransformedSqlStream(filePath: string): ReadableStream {
+  const input = fs.createReadStream(filePath);
+  const gunzip = createGunzip();
+  const nodeStream = input.pipe(gunzip);
+
+  let remainder = "";
+
+  return new ReadableStream({
+    start(controller) {
+      nodeStream.on("data", (chunk: Buffer) => {
+        remainder += chunk.toString("utf-8");
+        const lines = remainder.split("\n");
+        // Keep the last partial line
+        remainder = lines.pop() ?? "";
+        const result: string[] = [];
+        for (const line of lines) {
+          if (line.startsWith("/*M!")) continue;
+          result.push(line);
+          if (line.startsWith("# -----")) {
+            result.push(SQL_MODE_DIRECTIVE);
+          }
+        }
+        if (result.length > 0) {
+          controller.enqueue(new TextEncoder().encode(`${result.join("\n")}\n`));
+        }
+      });
+
+      nodeStream.on("end", () => {
+        // Flush the remainder
+        if (remainder.length > 0) {
+          if (!remainder.startsWith("/*M!")) {
+            const parts = [remainder];
+            if (remainder.startsWith("# -----")) {
+              parts.push(SQL_MODE_DIRECTIVE);
+            }
+            controller.enqueue(new TextEncoder().encode(parts.join("\n")));
+          }
+        }
+        controller.close();
+      });
+
+      nodeStream.on("error", (err: Error) => {
+        controller.error(err);
+      });
+    },
+    cancel() {
+      nodeStream.destroy();
+      input.destroy();
+    },
+  });
+}
+
+export async function restoreInstance(
   deps: RestoreDependencies,
   name: string,
   backupDir: string,
-): RestoreResult {
+): Promise<RestoreResult> {
   const { processRunner, filesystem, config } = deps;
   const instanceDir = targetDir(config, name);
   const warnings: string[] = [];
@@ -116,12 +235,11 @@ export function restoreInstance(
 
   const dbPath = path.join(backupDir, dbFile);
 
-  // Parse UpdraftPlus header for table_prefix
-  const headerResult = processRunner.run(["bash", "-c", `zcat "${dbPath}" | head -50`]);
-
+  // Parse UpdraftPlus header for table_prefix using in-process gzip decompression
   let tablePrefix: string | null = null;
-  if (headerResult.exitCode === 0) {
-    const lines = headerResult.stdout.split("\n");
+  try {
+    const headerText = await readGzipHeader(dbPath, 50);
+    const lines = headerText.split("\n");
     for (const line of lines) {
       if (!line.startsWith("#")) break;
       const match = line.match(/^#\s*Table prefix:\s*(.+)$/i);
@@ -130,22 +248,30 @@ export function restoreInstance(
         break;
       }
     }
+  } catch {
+    // If we can't read the header, continue without table prefix
   }
 
   // Update table prefix in wp-config.php if found
   if (tablePrefix) {
     const wpConfigPath = path.join(instanceDir, "site", "wp-config.php");
-    const sedResult = processRunner.run([
-      "sudo",
-      "sed",
-      "-i",
-      `s/\\$table_prefix = '[^']*'/\\$table_prefix = '${tablePrefix}'/`,
-      wpConfigPath,
-    ]);
-    if (sedResult.exitCode !== 0) {
+    const catResult = processRunner.run(["sudo", "cat", wpConfigPath]);
+    if (catResult.exitCode !== 0) {
       return {
-        exitCode: sedResult.exitCode,
-        error: `Failed to update table prefix: ${sedResult.stderr}`,
+        exitCode: catResult.exitCode,
+        error: `Failed to read wp-config.php: ${catResult.stderr}`,
+        warnings,
+      };
+    }
+    const updatedContent = catResult.stdout.replace(
+      /\$table_prefix = '[^']*'/,
+      `$table_prefix = '${tablePrefix}'`,
+    );
+    const teeResult = processRunner.run(["sudo", "tee", wpConfigPath], { stdin: updatedContent });
+    if (teeResult.exitCode !== 0) {
+      return {
+        exitCode: teeResult.exitCode,
+        error: `Failed to update table prefix: ${teeResult.stderr}`,
         warnings,
       };
     }
@@ -166,18 +292,30 @@ export function restoreInstance(
 
   const envFlags = getWordPressEnvVars(processRunner, containerId).flatMap((v) => ["--env", v]);
 
-  // Import database with sed transformations
-  const sedTransforms = [
-    "/^# -----/a\\/*!40101 SET sql_mode=\\'ONLY_FULL_GROUP_BY,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION\\' */;",
-    "/^\\/\\*M!/d",
-  ];
-  const sedArgs = sedTransforms.map((t) => `-e "${t}"`).join(" ");
+  // Import database with in-process streaming decompression and transformation
+  const sqlStream = createTransformedSqlStream(dbPath);
 
-  const importResult = processRunner.run([
-    "bash",
-    "-c",
-    `zcat "${dbPath}" | sed ${sedArgs} | docker run --rm -i ${envFlags.map((f) => `"${f}"`).join(" ")} --volumes-from "${containerId}" --network "container:${containerId}" --user 33:33 wordpress:cli wp db import -`,
-  ]);
+  const importResult = await processRunner.runAsync(
+    [
+      "docker",
+      "run",
+      "--rm",
+      "-i",
+      ...envFlags,
+      "--volumes-from",
+      containerId,
+      "--network",
+      `container:${containerId}`,
+      "--user",
+      "33:33",
+      "wordpress:cli",
+      "wp",
+      "db",
+      "import",
+      "-",
+    ],
+    { stdin: sqlStream },
+  );
 
   if (importResult.exitCode !== 0) {
     return {

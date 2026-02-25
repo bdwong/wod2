@@ -1,10 +1,24 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import * as nodeFs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { gzipSync } from "node:zlib";
 import type { CreateConfig } from "../config/create-config.ts";
 import { MockProcessRunner } from "../docker/mock-process-runner.ts";
 import { BUNDLED_TEMPLATES } from "../templates/bundled-templates.ts";
 import { BundledTemplateSource } from "../templates/template-engine.ts";
 import { MockFilesystem } from "../utils/mock-filesystem.ts";
 import { type CreateDependencies, createInstance } from "./create.ts";
+
+let tmpDir: string;
+
+beforeEach(() => {
+  tmpDir = nodeFs.mkdtempSync(path.join(os.tmpdir(), "create-test-"));
+});
+
+afterEach(() => {
+  nodeFs.rmSync(tmpDir, { recursive: true, force: true });
+});
 
 const defaultCreateConfig: CreateConfig = {
   wordpressVersion: "6.7.1",
@@ -537,23 +551,26 @@ describe("createInstance", () => {
     });
 
     test("creates instance and restores when backupDir provided", async () => {
+      // Create a real gzipped DB file on disk for restore's in-process decompression
+      const dbGzPath = path.join(tmpDir, "backup_2024-01-01-db.gz");
+      nodeFs.writeFileSync(dbGzPath, gzipSync(Buffer.from("# no header\nCREATE TABLE foo;")));
+
       const fs = new MockFilesystem();
       fs.addDirectory("/home/user/wod/other");
-      fs.addDirectory("/backups");
+      fs.addDirectory(tmpDir);
       // Don't add /home/user/wod/mysite — ensureDirectory will register it
-      fs.setDirFiles("/backups", ["backup_2024-01-01-db.gz"]);
+      fs.setDirFiles(tmpDir, ["backup_2024-01-01-db.gz"]);
 
       const runner = setupSuccessRunner();
       // Restore: chown
       runner.addResponse(["sudo", "chown"], { exitCode: 0 });
-      // Restore: zcat | head (header parsing) — no table prefix
-      runner.addResponse(["bash", "-c"], { exitCode: 0, stdout: "# no header\n" });
       // Restore: docker container ls (reuses existing prefix match)
       // Restore: docker exec env (reuses existing prefix match)
-      // Restore: bash -c db import (reuses bash -c prefix match)
+      // Restore: docker run async db import
+      runner.addAsyncResponse(["docker", "run"], { exitCode: 0 });
 
       const deps = createDeps({ processRunner: runner, filesystem: fs });
-      const result = await createInstance(deps, "mysite", "/backups");
+      const result = await createInstance(deps, "mysite", tmpDir);
       expect(result.exitCode).toBe(0);
       expect(result.error).toBeNull();
 

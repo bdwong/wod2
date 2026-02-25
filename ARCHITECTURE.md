@@ -95,19 +95,16 @@ genuinely require them, such as Docker and `sudo`.
 | Docker Compose (v2, `docker compose` subcommand) | Multi-container orchestration |
 | wp-cli (via `wordpress:cli` Docker image) | WordPress management commands |
 | `unzip` | Extracting backup archives |
-| `zcat` | Decompressing `.gz` database dumps |
-| `sed` | SQL processing during database import |
 | `sudo` | File permission operations on site directories |
 | `openssl` (optional) | Generating self-signed SSL certificates (planned) |
 
 > **Note:** The original Bash implementation also depended on `grep`, `awk`,
-> and `sed` for template patching and text processing. The wod2
-> reimplementation handles template rendering in-process with Handlebars and
-> performs string manipulation natively in TypeScript, eliminating most of
-> these external tool dependencies. The remaining `sed` usage is within a
-> shell pipeline for database import processing, and `zcat` is used to
-> decompress database dumps — both are invoked via Docker/shell commands
-> where in-process alternatives would add unnecessary complexity.
+> `sed`, and `zcat` for template patching, text processing, and database
+> import pipelines. The wod2 reimplementation handles template rendering
+> in-process with Handlebars, performs string manipulation natively in
+> TypeScript, and uses Node.js `zlib` streams for gzip decompression and
+> SQL transformation during database restore — eliminating all of these
+> external tool dependencies.
 
 ---
 
@@ -564,23 +561,25 @@ backup*-db.gz            # Database dump (UpdraftPlus format)
    b. If not found, fall back to `*.sql.gz`.
    c. If still not found, print warning and skip database restore.
    d. **Extract UpdraftPlus header comments:**
-      - Read lines starting with `#` until the first blank line.
-      - Parse key-value pairs from header comments in format `# Key: Value`.
-      - Convert to shell variables: lowercase, spaces to underscores.
+      - Decompress the `.gz` file in-process using Node.js `zlib` streams.
+      - Read the first 50 lines of the decompressed content.
+      - Parse lines starting with `#` for key-value pairs in format
+        `# Key: Value`.
       - Key extracted variable: `table_prefix`.
    e. **Update table prefix** (if found in header):
-      - Modify `site/wp-config.php`: replace the `$table_prefix = '...'` line
-        with the value from the backup header.
-      - Uses sudo for file permission.
+      - Read `site/wp-config.php` via `sudo cat`.
+      - Replace the `$table_prefix = '...'` value in TypeScript.
+      - Write back via `sudo tee`.
    f. **Import database** with SQL compatibility fix:
-      - Decompress the gzip file.
-      - Apply sed transformations:
-        - After the line starting with `# -----`, insert a SQL mode directive:
+      - Create a streaming pipeline: `fs.createReadStream` → `zlib.createGunzip()`
+        → TypeScript transform stream → `docker run ... wp db import -` via stdin.
+      - The transform stream applies two rules line-by-line:
+        - After lines starting with `# -----`, insert a SQL mode directive:
           ```sql
           /*!40101 SET sql_mode='ONLY_FULL_GROUP_BY,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION' */;
           ```
         - Remove lines starting with `/*M!` (MariaDB-specific directives).
-      - Pipe the result to `wp db import -`.
+      - The transformed SQL is piped as a `ReadableStream` to `wp db import -`.
 
 **UpdraftPlus Header Format Example:**
 ```
@@ -593,15 +592,10 @@ backup*-db.gz            # Database dump (UpdraftPlus format)
 ```
 
 **Header parsing algorithm:**
-1. `zcat` the `.gz` file.
-2. Extract lines starting with `#` until the first blank line.
-3. For each line containing `: `:
-   - Strip the leading `# `.
-   - Split on `: ` to get key and value.
-   - Lowercase the key.
-   - Replace spaces with underscores in the key.
-   - Result: `key="value"`.
-4. Evaluate the resulting assignments as shell variables.
+1. Decompress the `.gz` file in-process using Node.js `zlib.createGunzip()`.
+2. Read the first 50 lines.
+3. Extract lines starting with `#` until the first non-comment line.
+4. Match `# Table prefix: <value>` to extract the table prefix.
 
 ### 7.7 `wod wp <name> <wp-cli-command...>`
 

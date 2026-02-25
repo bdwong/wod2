@@ -218,14 +218,14 @@ export function createProgram(): Command {
     .description("Restore backup into existing instance")
     .argument("<name>", "Instance name")
     .argument("<backup-directory>", "Path to backup files")
-    .action((name: string, backupDirectory: string) => {
+    .action(async (name: string, backupDirectory: string) => {
       const config = resolveConfig();
       const deps = {
         processRunner: new BunProcessRunner({ verbose: program.opts().verbose }),
         filesystem: new RealFilesystem(),
         config,
       };
-      const result = restoreInstance(deps, name, backupDirectory);
+      const result = await restoreInstance(deps, name, backupDirectory);
       if (result.error) {
         console.error(result.error);
       }
