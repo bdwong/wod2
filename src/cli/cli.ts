@@ -20,7 +20,8 @@ export function createProgram(): Command {
   program
     .name("wod")
     .description("WordPress on Docker — manage disposable WordPress instances")
-    .version("0.1.0");
+    .version("0.1.0")
+    .option("-v, --verbose", "Show docker commands and their output");
 
   program
     .command("create")
@@ -59,7 +60,7 @@ export function createProgram(): Command {
           config.wodHome,
         );
         const deps = {
-          processRunner: new BunProcessRunner(),
+          processRunner: new BunProcessRunner({ verbose: program.opts().verbose }),
           filesystem,
           config,
           createConfig,
@@ -88,7 +89,7 @@ export function createProgram(): Command {
     .action(() => {
       const config = resolveConfig();
       const result = listInstances({
-        processRunner: new BunProcessRunner(),
+        processRunner: new BunProcessRunner({ verbose: program.opts().verbose }),
         filesystem: new RealFilesystem(),
         config,
       });
@@ -105,7 +106,7 @@ export function createProgram(): Command {
     .action((name: string, options: { httpPort?: string; httpsPort?: string }) => {
       const config = resolveConfig();
       const deps = {
-        processRunner: new BunProcessRunner(),
+        processRunner: new BunProcessRunner({ verbose: program.opts().verbose }),
         filesystem: new RealFilesystem(),
         config,
       };
@@ -132,7 +133,7 @@ export function createProgram(): Command {
     .action((name: string) => {
       const config = resolveConfig();
       const deps = {
-        processRunner: new BunProcessRunner(),
+        processRunner: new BunProcessRunner({ verbose: program.opts().verbose }),
         filesystem: new RealFilesystem(),
         config,
       };
@@ -149,7 +150,7 @@ export function createProgram(): Command {
     .action((name: string) => {
       const config = resolveConfig();
       const deps = {
-        processRunner: new BunProcessRunner(),
+        processRunner: new BunProcessRunner({ verbose: program.opts().verbose }),
         filesystem: new RealFilesystem(),
         config,
       };
@@ -171,7 +172,7 @@ export function createProgram(): Command {
     .action((name: string, backupDirectory: string) => {
       const config = resolveConfig();
       const deps = {
-        processRunner: new BunProcessRunner(),
+        processRunner: new BunProcessRunner({ verbose: program.opts().verbose }),
         filesystem: new RealFilesystem(),
         config,
       };
@@ -204,13 +205,16 @@ export function createProgram(): Command {
     .allowUnknownOption()
     .action((name: string, wpArgs: string[]) => {
       const deps = {
-        processRunner: new BunProcessRunner(),
+        processRunner: new BunProcessRunner({ verbose: program.opts().verbose }),
         isTTY: process.stdin.isTTY ?? false,
       };
       const result = buildWpCommand(deps, name, wpArgs);
       if (result.error) {
         console.error(result.error);
         process.exit(result.exitCode);
+      }
+      if (program.opts().verbose) {
+        console.error(`$ ${(result.dockerCommand as string[]).join(" ")}`);
       }
       const proc = Bun.spawnSync(result.dockerCommand as string[], {
         stdin: "inherit",
