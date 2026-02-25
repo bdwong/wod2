@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import type { WodConfig } from "../config/config.ts";
 import { targetDir } from "../config/config.ts";
+import { getWordPressEnvVars } from "../docker/docker.ts";
 import type { ProcessRunner } from "../docker/process-runner.ts";
 import type { Filesystem } from "../utils/filesystem.ts";
 
@@ -163,10 +164,7 @@ export function restoreInstance(
     return { exitCode: 1, error: "WordPress container not found", warnings };
   }
 
-  // Extract WORDPRESS_* env vars from the running container
-  const envResult = processRunner.run(["docker", "exec", containerId, "/bin/env"]);
-  const wpEnvVars = envResult.stdout.split("\n").filter((line) => line.startsWith("WORDPRESS"));
-  const envFlags = wpEnvVars.flatMap((v) => ["--env", v]);
+  const envFlags = getWordPressEnvVars(processRunner, containerId).flatMap((v) => ["--env", v]);
 
   // Import database with sed transformations
   const sedTransforms = [

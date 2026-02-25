@@ -53,7 +53,7 @@ function setupSuccessRunner(): MockProcessRunner {
     stdout: "abc123\n",
   });
   // Extract env vars
-  runner.addResponse(["docker", "exec", "abc123", "/bin/env"], {
+  runner.addResponse(["docker", "exec", "abc123", "env"], {
     exitCode: 0,
     stdout: "WORDPRESS_DB_HOST=db:3306\nWORDPRESS_DB_USER=wordpress\nHOME=/root\n",
   });
@@ -417,6 +417,8 @@ describe("createInstance", () => {
       expect(wpCall?.command).toContain("--env");
       expect(wpCall?.command).toContain("WORDPRESS_DB_HOST=db:3306");
       expect(wpCall?.command).toContain("WORDPRESS_DB_USER=wordpress");
+      expect(wpCall?.command).toContain("WORDPRESS_DB_PASSWORD=wordpress");
+      expect(wpCall?.command).toContain("WORDPRESS_DB_NAME=wordpress");
       // HOME=/root should NOT be passed (not a WORDPRESS_ var)
       expect(wpCall?.command).not.toContain("HOME=/root");
     });
@@ -461,7 +463,7 @@ describe("createInstance", () => {
         exitCode: 0,
         stdout: "abc123\n",
       });
-      runner.addResponse(["docker", "exec", "abc123", "/bin/env"], {
+      runner.addResponse(["docker", "exec", "abc123", "env"], {
         exitCode: 0,
         stdout: "WORDPRESS_DB_HOST=db:3306\n",
       });

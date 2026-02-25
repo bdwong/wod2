@@ -53,7 +53,7 @@ function setupSuccessRunner(): MockProcessRunner {
     stdout: "abc123\n",
   });
   // docker exec (env vars)
-  runner.addResponse(["docker", "exec", "abc123", "/bin/env"], {
+  runner.addResponse(["docker", "exec", "abc123", "env"], {
     exitCode: 0,
     stdout: "WORDPRESS_DB_HOST=db:3306\nWORDPRESS_DB_USER=wordpress\nHOME=/root\n",
   });
@@ -127,7 +127,7 @@ describe("restoreInstance", () => {
         exitCode: 0,
         stdout: "abc123\n",
       });
-      runner.addResponse(["docker", "exec", "abc123", "/bin/env"], {
+      runner.addResponse(["docker", "exec", "abc123", "env"], {
         exitCode: 0,
         stdout: "WORDPRESS_DB_HOST=db:3306\n",
       });
@@ -229,7 +229,7 @@ describe("restoreInstance", () => {
         exitCode: 0,
         stdout: "abc123\n",
       });
-      runner.addResponse(["docker", "exec", "abc123", "/bin/env"], {
+      runner.addResponse(["docker", "exec", "abc123", "env"], {
         exitCode: 0,
         stdout: "WORDPRESS_DB_HOST=db:3306\n",
       });
@@ -259,7 +259,7 @@ describe("restoreInstance", () => {
         exitCode: 0,
         stdout: "abc123\n",
       });
-      runner.addResponse(["docker", "exec", "abc123", "/bin/env"], {
+      runner.addResponse(["docker", "exec", "abc123", "env"], {
         exitCode: 0,
         stdout: "WORDPRESS_DB_HOST=db:3306\n",
       });
@@ -311,7 +311,7 @@ describe("restoreInstance", () => {
         exitCode: 0,
         stdout: "abc123\n",
       });
-      runner.addResponse(["docker", "exec", "abc123", "/bin/env"], {
+      runner.addResponse(["docker", "exec", "abc123", "env"], {
         exitCode: 0,
         stdout: "WORDPRESS_DB_HOST=db:3306\n",
       });
@@ -346,7 +346,7 @@ describe("restoreInstance", () => {
         exitCode: 0,
         stdout: "abc123\n",
       });
-      runner.addResponse(["docker", "exec", "abc123", "/bin/env"], {
+      runner.addResponse(["docker", "exec", "abc123", "env"], {
         exitCode: 0,
         stdout: "WORDPRESS_DB_HOST=db:3306\n",
       });
@@ -377,7 +377,7 @@ describe("restoreInstance", () => {
         exitCode: 0,
         stdout: "abc123\n",
       });
-      runner.addResponse(["docker", "exec", "abc123", "/bin/env"], {
+      runner.addResponse(["docker", "exec", "abc123", "env"], {
         exitCode: 0,
         stdout: "WORDPRESS_DB_HOST=db:3306\n",
       });

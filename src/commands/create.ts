@@ -2,7 +2,7 @@ import path from "node:path";
 import type { WodConfig } from "../config/config.ts";
 import { targetDir } from "../config/config.ts";
 import type { CreateConfig } from "../config/create-config.ts";
-import { containerExists, volumeExists } from "../docker/docker.ts";
+import { containerExists, getWordPressEnvVars, volumeExists } from "../docker/docker.ts";
 import type { ProcessRunner } from "../docker/process-runner.ts";
 import type { TemplateSource } from "../templates/template-engine.ts";
 import { installTemplate } from "../templates/template-engine.ts";
@@ -141,9 +141,7 @@ export async function createInstance(
     };
   }
 
-  // Extract WORDPRESS_* env vars from the running container
-  const envResult = processRunner.run(["docker", "exec", containerId, "/bin/env"]);
-  const wpEnvVars = envResult.stdout.split("\n").filter((line) => line.startsWith("WORDPRESS"));
+  const wpEnvVars = getWordPressEnvVars(processRunner, containerId);
 
   // wp core install
   const wpResult = processRunner.run([

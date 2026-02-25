@@ -1,3 +1,4 @@
+import { getWordPressEnvVars } from "../docker/docker.ts";
 import type { ProcessRunner } from "../docker/process-runner.ts";
 
 export interface WpDependencies {
@@ -50,10 +51,7 @@ export function buildWpCommand(
     };
   }
 
-  // Extract WORDPRESS_* env vars from the running container
-  const envResult = processRunner.run(["docker", "exec", containerId, "/bin/env"]);
-  const wpEnvVars = envResult.stdout.split("\n").filter((line) => line.startsWith("WORDPRESS"));
-  const envFlags = wpEnvVars.flatMap((v) => ["--env", v]);
+  const envFlags = getWordPressEnvVars(processRunner, containerId).flatMap((v) => ["--env", v]);
 
   // Build docker run command
   const inputFlags = isTTY ? ["-it"] : ["-i"];

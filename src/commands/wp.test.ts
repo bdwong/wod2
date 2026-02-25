@@ -30,7 +30,7 @@ describe("buildWpCommand", () => {
         exitCode: 0,
         stdout: "abc123\n",
       });
-      runner.addResponse(["docker", "exec", "abc123", "/bin/env"], {
+      runner.addResponse(["docker", "exec", "abc123", "env"], {
         exitCode: 0,
         stdout: "WORDPRESS_DB_HOST=db:3306\n",
       });
@@ -50,7 +50,7 @@ describe("buildWpCommand", () => {
         exitCode: 0,
         stdout: "def456\n",
       });
-      runner.addResponse(["docker", "exec", "def456", "/bin/env"], {
+      runner.addResponse(["docker", "exec", "def456", "env"], {
         exitCode: 0,
         stdout: "WORDPRESS_DB_HOST=db:3306\n",
       });
@@ -81,7 +81,7 @@ describe("buildWpCommand", () => {
         exitCode: 0,
         stdout: "abc123\n",
       });
-      runner.addResponse(["docker", "exec", "abc123", "/bin/env"], {
+      runner.addResponse(["docker", "exec", "abc123", "env"], {
         exitCode: 0,
         stdout: "WORDPRESS_DB_HOST=db:3306\nWORDPRESS_DB_USER=wp\nHOME=/root\nPATH=/usr/bin\n",
       });
@@ -91,7 +91,11 @@ describe("buildWpCommand", () => {
       const cmd = result.dockerCommand as string[];
       expect(cmd).toContain("--env");
       expect(cmd).toContain("WORDPRESS_DB_HOST=db:3306");
+      // Extracted value overrides baseline
       expect(cmd).toContain("WORDPRESS_DB_USER=wp");
+      // Baseline vars are always included
+      expect(cmd).toContain("WORDPRESS_DB_PASSWORD=wordpress");
+      expect(cmd).toContain("WORDPRESS_DB_NAME=wordpress");
       // Non-WORDPRESS vars should not be included
       expect(cmd).not.toContain("HOME=/root");
       expect(cmd).not.toContain("PATH=/usr/bin");
@@ -105,7 +109,7 @@ describe("buildWpCommand", () => {
         exitCode: 0,
         stdout: "abc123\n",
       });
-      runner.addResponse(["docker", "exec", "abc123", "/bin/env"], {
+      runner.addResponse(["docker", "exec", "abc123", "env"], {
         exitCode: 0,
         stdout: "WORDPRESS_DB_HOST=db:3306\n",
       });
@@ -121,7 +125,7 @@ describe("buildWpCommand", () => {
         exitCode: 0,
         stdout: "abc123\n",
       });
-      runner.addResponse(["docker", "exec", "abc123", "/bin/env"], {
+      runner.addResponse(["docker", "exec", "abc123", "env"], {
         exitCode: 0,
         stdout: "WORDPRESS_DB_HOST=db:3306\n",
       });
@@ -139,7 +143,7 @@ describe("buildWpCommand", () => {
         exitCode: 0,
         stdout: "abc123\n",
       });
-      runner.addResponse(["docker", "exec", "abc123", "/bin/env"], {
+      runner.addResponse(["docker", "exec", "abc123", "env"], {
         exitCode: 0,
         stdout: "WORDPRESS_DB_HOST=db:3306\n",
       });
@@ -170,7 +174,7 @@ describe("buildWpCommand", () => {
         exitCode: 0,
         stdout: "abc123\n",
       });
-      runner.addResponse(["docker", "exec", "abc123", "/bin/env"], {
+      runner.addResponse(["docker", "exec", "abc123", "env"], {
         exitCode: 0,
         stdout: "WORDPRESS_DB_HOST=db:3306\n",
       });

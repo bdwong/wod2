@@ -3,6 +3,7 @@ import {
   containerExists,
   containerIsRunning,
   dockerIsRunning,
+  getWordPressEnvVars,
   querySiteUrl,
   volumeExists,
 } from "./docker.ts";
@@ -145,6 +146,41 @@ describe("volumeExists", () => {
     });
     volumeExists(runner, "staging-b_db_data");
     expect(runner.calls[0]).toEqual(["docker", "volume", "ls", "-qf", "name=staging-b_db_data"]);
+  });
+});
+
+describe("getWordPressEnvVars", () => {
+  test("returns baseline vars when extraction returns nothing", () => {
+    const runner = new MockProcessRunner();
+    runner.addResponse(["docker", "exec"], { exitCode: 1, stdout: "" });
+    const vars = getWordPressEnvVars(runner, "abc123");
+    expect(vars).toContain("WORDPRESS_DB_HOST=db:3306");
+    expect(vars).toContain("WORDPRESS_DB_USER=wordpress");
+    expect(vars).toContain("WORDPRESS_DB_PASSWORD=wordpress");
+    expect(vars).toContain("WORDPRESS_DB_NAME=wordpress");
+  });
+
+  test("extracted vars override baseline", () => {
+    const runner = new MockProcessRunner();
+    runner.addResponse(["docker", "exec"], {
+      exitCode: 0,
+      stdout: "WORDPRESS_DB_HOST=custom-db:3307\nWORDPRESS_DB_USER=wp\nHOME=/root\n",
+    });
+    const vars = getWordPressEnvVars(runner, "abc123");
+    expect(vars).toContain("WORDPRESS_DB_HOST=custom-db:3307");
+    expect(vars).toContain("WORDPRESS_DB_USER=wp");
+    // Baseline values still present for non-overridden keys
+    expect(vars).toContain("WORDPRESS_DB_PASSWORD=wordpress");
+    expect(vars).toContain("WORDPRESS_DB_NAME=wordpress");
+    // Non-WORDPRESS vars excluded
+    expect(vars).not.toContain("HOME=/root");
+  });
+
+  test("calls docker exec env on the given container", () => {
+    const runner = new MockProcessRunner();
+    runner.addResponse(["docker", "exec"], { exitCode: 0, stdout: "" });
+    getWordPressEnvVars(runner, "mycontainer");
+    expect(runner.calls[0]).toEqual(["docker", "exec", "mycontainer", "env"]);
   });
 });
 
