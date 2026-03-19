@@ -388,6 +388,82 @@ describe("restoreInstance", () => {
       expect(teeCall?.stdinContent).toContain("wp_custom_");
     });
 
+    test("updates getenv_docker table_prefix format in wp-config.php", async () => {
+      const dbContent =
+        "# WordPress MySQL database backup\n# Table prefix: wp_custom_\n# -----\nCREATE TABLE foo;";
+      createGzFile("backup_2024-01-01-db.gz", dbContent);
+
+      const mockFs = new MockFilesystem();
+      mockFs.addDirectory("/home/user/wod/mysite");
+      mockFs.addDirectory(tmpDir);
+      mockFs.setDirFiles(tmpDir, ["backup_2024-01-01-db.gz"]);
+
+      const runner = new MockProcessRunner();
+      runner.addResponse(["sudo", "chown"], { exitCode: 0 });
+      runner.addResponse(["sudo", "cat"], {
+        exitCode: 0,
+        stdout: "<?php\n$table_prefix = getenv_docker('WORDPRESS_TABLE_PREFIX', 'wp_');\n",
+      });
+      runner.addResponse(["sudo", "tee"], { exitCode: 0 });
+      runner.addResponse(["docker", "container", "ls", "-qf", "name=mysite-wordpress-"], {
+        exitCode: 0,
+        stdout: "abc123\n",
+      });
+      runner.addResponse(["docker", "exec", "abc123", "env"], {
+        exitCode: 0,
+        stdout: "WORDPRESS_DB_HOST=db:3306\n",
+      });
+      runner.addAsyncResponse(["docker", "run"], { exitCode: 0 });
+
+      const deps = createDeps({ processRunner: runner, filesystem: mockFs });
+      const result = await restoreInstance(deps, "mysite", tmpDir);
+
+      expect(result.exitCode).toBe(0);
+
+      const teeCall = runner.recordedCalls.find(
+        (c) => c.command[0] === "sudo" && c.command[1] === "tee",
+      );
+      expect(teeCall).toBeDefined();
+      expect(teeCall?.stdinContent).toContain("$table_prefix = 'wp_custom_';");
+      expect(teeCall?.stdinContent).not.toContain("getenv_docker");
+    });
+
+    test("warns when table_prefix line not found in wp-config.php", async () => {
+      const dbContent =
+        "# WordPress MySQL database backup\n# Table prefix: wp_custom_\n# -----\nCREATE TABLE foo;";
+      createGzFile("backup_2024-01-01-db.gz", dbContent);
+
+      const mockFs = new MockFilesystem();
+      mockFs.addDirectory("/home/user/wod/mysite");
+      mockFs.addDirectory(tmpDir);
+      mockFs.setDirFiles(tmpDir, ["backup_2024-01-01-db.gz"]);
+
+      const runner = new MockProcessRunner();
+      runner.addResponse(["sudo", "chown"], { exitCode: 0 });
+      runner.addResponse(["sudo", "cat"], {
+        exitCode: 0,
+        stdout: "<?php\n// no table prefix here\n",
+      });
+      runner.addResponse(["sudo", "tee"], { exitCode: 0 });
+      runner.addResponse(["docker", "container", "ls", "-qf", "name=mysite-wordpress-"], {
+        exitCode: 0,
+        stdout: "abc123\n",
+      });
+      runner.addResponse(["docker", "exec", "abc123", "env"], {
+        exitCode: 0,
+        stdout: "WORDPRESS_DB_HOST=db:3306\n",
+      });
+      runner.addAsyncResponse(["docker", "run"], { exitCode: 0 });
+
+      const deps = createDeps({ processRunner: runner, filesystem: mockFs });
+      const result = await restoreInstance(deps, "mysite", tmpDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.warnings).toContain(
+        "Could not find table_prefix line in wp-config.php to update",
+      );
+    });
+
     test("skips table prefix update when no prefix found in header", async () => {
       const dbContent = "# Just a regular SQL dump\nCREATE TABLE foo;";
       createGzFile("backup_2024-01-01-db.gz", dbContent);
@@ -462,6 +538,146 @@ describe("restoreInstance", () => {
       expect(stdin).not.toContain("/*M!");
       expect(stdin).toContain("CREATE TABLE foo;");
       expect(stdin).toContain("INSERT INTO foo;");
+    });
+  });
+
+  describe("URL rewriting", () => {
+    test("rewrites siteurl and home when siteUrl option is provided", async () => {
+      createGzFile("backup_2024-01-01-db.gz", DEFAULT_DB_CONTENT);
+
+      const mockFs = new MockFilesystem();
+      mockFs.addDirectory("/home/user/wod/mysite");
+      mockFs.addDirectory(tmpDir);
+      mockFs.setDirFiles(tmpDir, ["backup_2024-01-01-db.gz"]);
+
+      const runner = new MockProcessRunner();
+      runner.addResponse(["sudo", "chown"], { exitCode: 0 });
+      runner.addResponse(["docker", "container", "ls", "-qf", "name=mysite-wordpress-"], {
+        exitCode: 0,
+        stdout: "abc123\n",
+      });
+      runner.addResponse(["docker", "exec", "abc123", "env"], {
+        exitCode: 0,
+        stdout: "WORDPRESS_DB_HOST=db:3306\n",
+      });
+      runner.addAsyncResponse(["docker", "run"], { exitCode: 0 });
+      // wp option set siteurl + home
+      runner.addResponse(["docker", "run"], { exitCode: 0 });
+      runner.addResponse(["docker", "run"], { exitCode: 0 });
+
+      const deps = createDeps({ processRunner: runner, filesystem: mockFs });
+      const result = await restoreInstance(deps, "mysite", tmpDir, {
+        siteUrl: "https://127.0.0.1:8443",
+      });
+
+      expect(result.exitCode).toBe(0);
+      const optionSetCalls = runner.recordedCalls.filter(
+        (c) => c.command.includes("option") && c.command.includes("set"),
+      );
+      expect(optionSetCalls).toHaveLength(2);
+      expect(optionSetCalls[0].command).toContain("siteurl");
+      expect(optionSetCalls[0].command).toContain("https://127.0.0.1:8443");
+      expect(optionSetCalls[1].command).toContain("home");
+      expect(optionSetCalls[1].command).toContain("https://127.0.0.1:8443");
+    });
+
+    test("skips URL rewrite when keepUrls option is set", async () => {
+      createGzFile("backup_2024-01-01-db.gz", DEFAULT_DB_CONTENT);
+
+      const mockFs = new MockFilesystem();
+      mockFs.addDirectory("/home/user/wod/mysite");
+      mockFs.addDirectory(tmpDir);
+      mockFs.setDirFiles(tmpDir, ["backup_2024-01-01-db.gz"]);
+
+      const runner = new MockProcessRunner();
+      runner.addResponse(["sudo", "chown"], { exitCode: 0 });
+      runner.addResponse(["docker", "container", "ls", "-qf", "name=mysite-wordpress-"], {
+        exitCode: 0,
+        stdout: "abc123\n",
+      });
+      runner.addResponse(["docker", "exec", "abc123", "env"], {
+        exitCode: 0,
+        stdout: "WORDPRESS_DB_HOST=db:3306\n",
+      });
+      runner.addAsyncResponse(["docker", "run"], { exitCode: 0 });
+
+      const deps = createDeps({ processRunner: runner, filesystem: mockFs });
+      const result = await restoreInstance(deps, "mysite", tmpDir, {
+        keepUrls: true,
+        siteUrl: "https://127.0.0.1:8443",
+      });
+
+      expect(result.exitCode).toBe(0);
+      const optionSetCalls = runner.recordedCalls.filter(
+        (c) => c.command.includes("option") && c.command.includes("set"),
+      );
+      expect(optionSetCalls).toHaveLength(0);
+    });
+
+    test("skips URL rewrite when no siteUrl provided", async () => {
+      createGzFile("backup_2024-01-01-db.gz", DEFAULT_DB_CONTENT);
+
+      const mockFs = new MockFilesystem();
+      mockFs.addDirectory("/home/user/wod/mysite");
+      mockFs.addDirectory(tmpDir);
+      mockFs.setDirFiles(tmpDir, ["backup_2024-01-01-db.gz"]);
+
+      const runner = new MockProcessRunner();
+      runner.addResponse(["sudo", "chown"], { exitCode: 0 });
+      runner.addResponse(["docker", "container", "ls", "-qf", "name=mysite-wordpress-"], {
+        exitCode: 0,
+        stdout: "abc123\n",
+      });
+      runner.addResponse(["docker", "exec", "abc123", "env"], {
+        exitCode: 0,
+        stdout: "WORDPRESS_DB_HOST=db:3306\n",
+      });
+      runner.addAsyncResponse(["docker", "run"], { exitCode: 0 });
+
+      const deps = createDeps({ processRunner: runner, filesystem: mockFs });
+      const result = await restoreInstance(deps, "mysite", tmpDir);
+
+      expect(result.exitCode).toBe(0);
+      const optionSetCalls = runner.recordedCalls.filter(
+        (c) => c.command.includes("option") && c.command.includes("set"),
+      );
+      expect(optionSetCalls).toHaveLength(0);
+    });
+
+    test("uses custom site URL from --site-url option", async () => {
+      createGzFile("backup_2024-01-01-db.gz", DEFAULT_DB_CONTENT);
+
+      const mockFs = new MockFilesystem();
+      mockFs.addDirectory("/home/user/wod/mysite");
+      mockFs.addDirectory(tmpDir);
+      mockFs.setDirFiles(tmpDir, ["backup_2024-01-01-db.gz"]);
+
+      const runner = new MockProcessRunner();
+      runner.addResponse(["sudo", "chown"], { exitCode: 0 });
+      runner.addResponse(["docker", "container", "ls", "-qf", "name=mysite-wordpress-"], {
+        exitCode: 0,
+        stdout: "abc123\n",
+      });
+      runner.addResponse(["docker", "exec", "abc123", "env"], {
+        exitCode: 0,
+        stdout: "WORDPRESS_DB_HOST=db:3306\n",
+      });
+      runner.addAsyncResponse(["docker", "run"], { exitCode: 0 });
+      runner.addResponse(["docker", "run"], { exitCode: 0 });
+      runner.addResponse(["docker", "run"], { exitCode: 0 });
+
+      const deps = createDeps({ processRunner: runner, filesystem: mockFs });
+      const result = await restoreInstance(deps, "mysite", tmpDir, {
+        siteUrl: "https://example.com",
+      });
+
+      expect(result.exitCode).toBe(0);
+      const optionSetCalls = runner.recordedCalls.filter(
+        (c) => c.command.includes("option") && c.command.includes("set"),
+      );
+      expect(optionSetCalls).toHaveLength(2);
+      expect(optionSetCalls[0].command).toContain("https://example.com");
+      expect(optionSetCalls[1].command).toContain("https://example.com");
     });
   });
 

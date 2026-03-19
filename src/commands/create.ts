@@ -26,10 +26,15 @@ export interface CreateResult {
   error: string | null;
 }
 
+export interface CreateOptions {
+  keepUrls?: boolean;
+}
+
 export async function createInstance(
   deps: CreateDependencies,
   name: string,
   backupDir?: string,
+  options?: CreateOptions,
 ): Promise<CreateResult> {
   const { processRunner, filesystem, config, createConfig, templateSource, sleep } = deps;
   const instanceDir = targetDir(config, name);
@@ -194,53 +199,55 @@ export async function createInstance(
       };
     }
 
-    // Update site URL after restore
-    const envFlags = wpEnvVars.flatMap((v) => ["--env", v]);
-    const wpCliBase = [
-      "docker",
-      "run",
-      "--rm",
-      ...envFlags,
-      "--volumes-from",
-      containerId,
-      "--network",
-      `container:${containerId}`,
-      "--user",
-      "33:33",
-      "wordpress:cli",
-      "wp",
-    ];
+    // Update site URL after restore (unless --keep-urls was specified)
+    if (!options?.keepUrls) {
+      const envFlags = wpEnvVars.flatMap((v) => ["--env", v]);
+      const wpCliBase = [
+        "docker",
+        "run",
+        "--rm",
+        ...envFlags,
+        "--volumes-from",
+        containerId,
+        "--network",
+        `container:${containerId}`,
+        "--user",
+        "33:33",
+        "wordpress:cli",
+        "wp",
+      ];
 
-    const siteUrlResult = processRunner.run([
-      ...wpCliBase,
-      "option",
-      "set",
-      "siteurl",
-      createConfig.siteUrl,
-    ]);
-    if (siteUrlResult.exitCode !== 0) {
-      return {
-        exitCode: siteUrlResult.exitCode,
-        siteUrl: null,
-        adminPassword,
-        error: `Failed to set siteurl: ${siteUrlResult.stderr}`,
-      };
-    }
+      const siteUrlResult = processRunner.run([
+        ...wpCliBase,
+        "option",
+        "set",
+        "siteurl",
+        createConfig.siteUrl,
+      ]);
+      if (siteUrlResult.exitCode !== 0) {
+        return {
+          exitCode: siteUrlResult.exitCode,
+          siteUrl: null,
+          adminPassword,
+          error: `Failed to set siteurl: ${siteUrlResult.stderr}`,
+        };
+      }
 
-    const homeResult = processRunner.run([
-      ...wpCliBase,
-      "option",
-      "set",
-      "home",
-      createConfig.siteUrl,
-    ]);
-    if (homeResult.exitCode !== 0) {
-      return {
-        exitCode: homeResult.exitCode,
-        siteUrl: null,
-        adminPassword,
-        error: `Failed to set home URL: ${homeResult.stderr}`,
-      };
+      const homeResult = processRunner.run([
+        ...wpCliBase,
+        "option",
+        "set",
+        "home",
+        createConfig.siteUrl,
+      ]);
+      if (homeResult.exitCode !== 0) {
+        return {
+          exitCode: homeResult.exitCode,
+          siteUrl: null,
+          adminPassword,
+          error: `Failed to set home URL: ${homeResult.stderr}`,
+        };
+      }
     }
   }
 

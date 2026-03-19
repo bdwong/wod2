@@ -1,3 +1,4 @@
+import path from "node:path";
 import { Command } from "commander";
 import { createInstance } from "../commands/create.ts";
 import { downInstance } from "../commands/down.ts";
@@ -44,6 +45,7 @@ export function createProgram(): Command {
     .option("--php-version <version>", "PHP version (default: 8.5)")
     .option("--wordpress-version <version>", "WordPress version (default: 6.9.1)")
     .option("--template <name>", "Template name (default: custom)")
+    .option("--keep-urls", "Keep original siteurl and home from backup")
     .action(
       async (
         name: string,
@@ -54,6 +56,7 @@ export function createProgram(): Command {
           phpVersion?: string;
           wordpressVersion?: string;
           template?: string;
+          keepUrls?: boolean;
         },
       ) => {
         const nameError = validateInstanceName(name);
@@ -83,7 +86,9 @@ export function createProgram(): Command {
           templateSource,
           sleep: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
         };
-        const result = await createInstance(deps, name, backupDirectory);
+        const result = await createInstance(deps, name, backupDirectory, {
+          keepUrls: options.keepUrls,
+        });
         if (result.error) {
           console.error(result.error);
         }
@@ -253,29 +258,55 @@ export function createProgram(): Command {
     .description("Restore backup into existing instance")
     .argument("<name>", "Instance name")
     .argument("<backup-directory>", "Path to backup files")
-    .action(async (name: string, backupDirectory: string) => {
-      const nameError = validateInstanceName(name);
-      if (nameError) {
-        console.error(nameError);
-        process.exit(1);
-      }
-      const config = resolveConfig();
-      const deps = {
-        processRunner: new BunProcessRunner({ verbose: program.opts().verbose }),
-        filesystem: new RealFilesystem(),
-        config,
-      };
-      const result = await restoreInstance(deps, name, backupDirectory);
-      if (result.error) {
-        console.error(result.error);
-      }
-      for (const warning of result.warnings) {
-        console.warn(`Warning: ${warning}`);
-      }
-      if (result.exitCode !== 0) {
-        process.exit(result.exitCode);
-      }
-    });
+    .option("--keep-urls", "Keep original siteurl and home from backup")
+    .option("--site-url <url>", "Override site URL (default: https://127.0.0.1:<HTTPS_PORT>)")
+    .action(
+      async (
+        name: string,
+        backupDirectory: string,
+        options: { keepUrls?: boolean; siteUrl?: string },
+      ) => {
+        const nameError = validateInstanceName(name);
+        if (nameError) {
+          console.error(nameError);
+          process.exit(1);
+        }
+        const config = resolveConfig();
+        const filesystem = new RealFilesystem();
+        const deps = {
+          processRunner: new BunProcessRunner({ verbose: program.opts().verbose }),
+          filesystem,
+          config,
+        };
+        // Derive default siteUrl from instance .env file
+        let siteUrl = options.siteUrl;
+        if (!siteUrl && !options.keepUrls) {
+          const instanceDir = path.join(config.wodHome, name);
+          const envPath = path.join(instanceDir, ".env");
+          try {
+            const envContent = filesystem.readFile(envPath);
+            const portMatch = envContent.match(/^HTTPS_PORT=(\d+)$/m);
+            const httpsPort = portMatch ? portMatch[1] : "8443";
+            siteUrl = `https://127.0.0.1:${httpsPort}`;
+          } catch {
+            siteUrl = "https://127.0.0.1:8443";
+          }
+        }
+        const result = await restoreInstance(deps, name, backupDirectory, {
+          keepUrls: options.keepUrls,
+          siteUrl,
+        });
+        if (result.error) {
+          console.error(result.error);
+        }
+        for (const warning of result.warnings) {
+          console.warn(`Warning: ${warning}`);
+        }
+        if (result.exitCode !== 0) {
+          process.exit(result.exitCode);
+        }
+      },
+    );
 
   program
     .command("install")

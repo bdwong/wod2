@@ -7,6 +7,11 @@ import { getWordPressEnvVars } from "../docker/docker.ts";
 import type { ProcessRunner } from "../docker/process-runner.ts";
 import type { Filesystem } from "../utils/filesystem.ts";
 
+export interface RestoreOptions {
+  keepUrls?: boolean;
+  siteUrl?: string;
+}
+
 export interface RestoreDependencies {
   processRunner: ProcessRunner;
   filesystem: Filesystem;
@@ -142,6 +147,7 @@ export async function restoreInstance(
   deps: RestoreDependencies,
   name: string,
   backupDir: string,
+  options?: RestoreOptions,
 ): Promise<RestoreResult> {
   const { processRunner, filesystem, config } = deps;
   const instanceDir = targetDir(config, name);
@@ -251,8 +257,11 @@ export async function restoreInstance(
   } catch {
     // If we can't read the header, continue without table prefix
   }
-
-  // Update table prefix in wp-config.php if found
+  // Update table prefix directly in wp-config.php rather than setting
+  // WORDPRESS_TABLE_PREFIX in the Docker environment. Unlike DB credentials
+  // (which are correct as-is), the table prefix must change per-backup.
+  // Writing to wp-config.php takes effect immediately; setting an env var
+  // would require a container restart and waiting for MySQL to be ready again.
   if (tablePrefix) {
     const wpConfigPath = path.join(instanceDir, "site", "wp-config.php");
     const catResult = processRunner.run(["sudo", "cat", wpConfigPath]);
@@ -263,10 +272,15 @@ export async function restoreInstance(
         warnings,
       };
     }
-    const updatedContent = catResult.stdout.replace(
-      /\$table_prefix = '[^']*'/,
-      `$table_prefix = '${tablePrefix}'`,
-    );
+    // Match both static format: $table_prefix = 'wp_'
+    // and Docker format: $table_prefix = getenv_docker('WORDPRESS_TABLE_PREFIX', 'wp_')
+    const prefixPattern =
+      /\$table_prefix\s*=\s*(?:getenv_docker\(\s*'WORDPRESS_TABLE_PREFIX'\s*,\s*'[^']*'\s*\)|'[^']*')\s*;/;
+    const replacement = `$table_prefix = '${tablePrefix}';`;
+    const updatedContent = catResult.stdout.replace(prefixPattern, replacement);
+    if (updatedContent === catResult.stdout) {
+      warnings.push("Could not find table_prefix line in wp-config.php to update");
+    }
     const teeResult = processRunner.run(["sudo", "tee", wpConfigPath], { stdin: updatedContent });
     if (teeResult.exitCode !== 0) {
       return {
@@ -323,6 +337,48 @@ export async function restoreInstance(
       error: `Database import failed: ${importResult.stderr}`,
       warnings,
     };
+  }
+
+  // Rewrite site URL after DB import (unless --keep-urls was specified)
+  if (options?.siteUrl && !options?.keepUrls) {
+    const wpCliBase = [
+      "docker",
+      "run",
+      "--rm",
+      ...envFlags,
+      "--volumes-from",
+      containerId,
+      "--network",
+      `container:${containerId}`,
+      "--user",
+      "33:33",
+      "wordpress:cli",
+      "wp",
+    ];
+
+    const siteUrlResult = processRunner.run([
+      ...wpCliBase,
+      "option",
+      "set",
+      "siteurl",
+      options.siteUrl,
+    ]);
+    if (siteUrlResult.exitCode !== 0) {
+      return {
+        exitCode: siteUrlResult.exitCode,
+        error: `Failed to set siteurl: ${siteUrlResult.stderr}`,
+        warnings,
+      };
+    }
+
+    const homeResult = processRunner.run([...wpCliBase, "option", "set", "home", options.siteUrl]);
+    if (homeResult.exitCode !== 0) {
+      return {
+        exitCode: homeResult.exitCode,
+        error: `Failed to set home URL: ${homeResult.stderr}`,
+        warnings,
+      };
+    }
   }
 
   return { exitCode: 0, error: null, warnings };

@@ -607,6 +607,30 @@ describe("createInstance", () => {
       expect(result.error).toContain("Failed to extract");
     });
 
+    test("skips URL rewrite when keepUrls option is set", async () => {
+      const dbGzPath = path.join(tmpDir, "backup_2024-01-01-db.gz");
+      nodeFs.writeFileSync(dbGzPath, gzipSync(Buffer.from("# no header\nCREATE TABLE foo;")));
+
+      const fs = new MockFilesystem();
+      fs.addDirectory("/home/user/wod/other");
+      fs.addDirectory(tmpDir);
+      fs.setDirFiles(tmpDir, ["backup_2024-01-01-db.gz"]);
+
+      const runner = setupSuccessRunner();
+      runner.addResponse(["sudo", "chown"], { exitCode: 0 });
+      runner.addAsyncResponse(["docker", "run"], { exitCode: 0 });
+
+      const deps = createDeps({ processRunner: runner, filesystem: fs });
+      const result = await createInstance(deps, "mysite", tmpDir, { keepUrls: true });
+      expect(result.exitCode).toBe(0);
+
+      // Verify NO wp option set calls were made
+      const optionSetCalls = runner.recordedCalls.filter(
+        (c) => c.command.includes("option") && c.command.includes("set"),
+      );
+      expect(optionSetCalls).toHaveLength(0);
+    });
+
     test("does not restore when backupDir is not provided", async () => {
       const fs = new MockFilesystem();
       fs.addDirectory("/home/user/wod/other");
