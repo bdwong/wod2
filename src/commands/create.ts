@@ -189,7 +189,11 @@ export async function createInstance(
   const passwordMatch = wpResult.stdout.match(/^Admin password:\s*(.+)$/m);
   const adminPassword = passwordMatch ? passwordMatch[1].trim() : null;
 
-  // Set up pretty permalinks and write .htaccess
+  // Set up pretty permalinks and write .htaccess.
+  // We use `wp eval` instead of `wp rewrite structure` + `wp rewrite flush --hard`
+  // because those commands run in the wordpress:cli sidecar container, which can't
+  // detect Apache's mod_rewrite. Without $is_apache = true, WordPress silently skips
+  // writing .htaccess and all non-root URLs 404.
   const envFlags = wpEnvVars.flatMap((v) => ["--env", v]);
   const wpCliBase = [
     "docker",
