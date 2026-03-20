@@ -67,13 +67,15 @@ COPY wp-config-docker.php /usr/src/wordpress/wp-config-docker.php
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Apache: AllowOverride All for .htaccess support
-RUN sed -i \
-        -e '/<\/VirtualHost>/i\' \
-        -e '        <Directory "/var/www/html">\' \
-        -e '                Options Indexes FollowSymLinks MultiViews\' \
-        -e '                AllowOverride All\' \
-        -e '        </Directory>' \
-        /etc/apache2/sites-available/000-default.conf
+RUN for conf in 000-default.conf default-ssl.conf; do \
+        sed -i \
+            -e '/<\/VirtualHost>/i\' \
+            -e '        <Directory "/var/www/html">\' \
+            -e '                Options Indexes FollowSymLinks MultiViews\' \
+            -e '                AllowOverride All\' \
+            -e '        </Directory>' \
+            /etc/apache2/sites-available/$conf; \
+    done
 
 # SSL: install self-signed certificate
 COPY cert.pem /etc/ssl/certs/cert.pem
