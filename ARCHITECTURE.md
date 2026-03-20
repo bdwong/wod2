@@ -74,7 +74,7 @@ genuinely require them, such as Docker and `sudo`.
 | FR-7 | Remove an instance completely (files, containers, volumes) |
 | FR-8 | Execute arbitrary wp-cli commands against a running instance |
 | FR-9 | Display help text for any command |
-| FR-10 | Support a user configuration file for default overrides |
+| FR-10 | Update an existing instance with new PHP/WordPress versions |
 | FR-11 | Coexist with a system-installed wp-cli binary |
 
 ### 2.2 Non-Functional Requirements
@@ -96,7 +96,7 @@ genuinely require them, such as Docker and `sudo`.
 | wp-cli (via `wordpress:cli` Docker image) | WordPress management commands |
 | `unzip` | Extracting backup archives |
 | `sudo` | File permission operations on site directories |
-| `openssl` (optional) | Generating self-signed SSL certificates (planned) |
+| `openssl` | Generating self-signed TLS certificates with SANs |
 
 > **Note:** The original Bash implementation also depended on `grep`, `awk`,
 > `sed`, and `zcat` for template patching, text processing, and database
@@ -119,54 +119,72 @@ genuinely require them, such as Docker and `sudo`.
                      │
                      ▼
 ┌─────────────────────────────────────────────────┐
-│              bin/wod  (Dispatcher)               │
-│  - Parses command name                           │
-│  - Routes to lib/wod-<command>                   │
-│  - Provides bootstrap for shell integration      │
+│       index.ts → cli.ts (Commander.js)          │
+│  - createProgram() registers subcommands        │
+│  - Each subcommand has argument/option defs     │
+│    and an action handler                        │
 └────────────────────┬────────────────────────────┘
                      │
         ┌────────────┼────────────────────┐
         ▼            ▼                    ▼
-┌──────────┐  ┌──────────┐  ┌───────────────────┐
-│ wod-create│  │ wod-ls   │  │ wod-restore       │
-│ wod-up   │  │ wod-help │  │ wod-wp            │
-│ wod-down │  │          │  │                   │
-│ wod-rm   │  │          │  │                   │
-└─────┬────┘  └──────────┘  └────────┬──────────┘
-      │                              │
-      ▼                              ▼
+┌──────────────┐ ┌──────────┐ ┌───────────────────┐
+│ commands/    │ │ commands/ │ │ commands/          │
+│  create.ts   │ │  ls.ts   │ │  restore.ts        │
+│  up.ts       │ │          │ │  wp.ts             │
+│  down.ts     │ │          │ │  update.ts         │
+│  rm.ts       │ │          │ │  install.ts        │
+└─────┬────────┘ └──────────┘ └────────┬──────────┘
+      │                                │
+      ▼                                ▼
 ┌──────────────────┐   ┌─────────────────────────┐
-│ lib/functions    │   │ Docker Engine            │
-│ (shared utils)   │   │  - docker compose up/down│
-│                  │   │  - docker run (wp-cli)   │
-└──────────────────┘   │  - docker container ls   │
-                       │  - docker volume ls/rm   │
-┌──────────────────┐   └─────────────────────────┘
-│ template/        │
-│  (docker-compose │
-│   + Dockerfile   │
-│   templates)     │
+│ docker/          │   │ Docker Engine            │
+│  docker.ts       │   │  - docker compose up/down│
+│  process-runner  │   │  - docker run (wp-cli)   │
+│                  │   │  - docker container ls   │
+│ config/          │   │  - docker volume ls/rm   │
+│  config.ts       │   └─────────────────────────┘
+│  create-config   │
+│                  │
+│ utils/           │
+│  filesystem.ts   │
+│                  │
+│ templates/       │
+│  template-engine │
+│  template-vars   │
+│  template-resolver│
+│  bundled-templates│
 └──────────────────┘
 ```
 
 ### 3.2 Data Flow: Instance Lifecycle
 
 ```
-create ──► Template resolved (user-customized or bundled)
+create ──► Validate instance name (no slashes, no leading dot)
+       ──► Prerequisite checks (no existing dir, containers, or volume)
+       ──► Template resolved (user-customized or bundled)
        ──► Handlebars renders .hbs files to WOD_HOME/<name>/
-       ──► docker compose up -d
+       ──► Write .env file (HTTP_PORT, HTTPS_PORT, HOSTNAMES)
+       ──► Generate self-signed TLS certificate with SANs via openssl
+       ──► docker compose up --build -d
        ──► Wait 10s for DB startup
        ──► wp core install (fresh WordPress)
-       ──► [optional] wod-restore + URL rewrite
+       ──► wp eval to set up pretty permalinks and write .htaccess
+       ──► [optional] restore backup + URL rewrite
 
-up     ──► docker compose up -d  (from instance directory)
+up     ──► [optional] Write port overrides to .env file
+       ──► docker compose up -d  (from instance directory)
        ──► Display site URL via wp option get siteurl
 
 down   ──► docker compose down   (from instance directory)
 
-rm     ──► wod-down (stop containers)
+rm     ──► docker compose down (stop containers)
        ──► sudo rm -rf instance directory
        ──► docker volume rm <name>_db_data
+
+update ──► docker compose down (stop containers)
+       ──► Re-render template files with new version vars
+       ──► Regenerate self-signed TLS certificate
+       ──► docker compose up --build -d
 
 ls     ──► Scan WOD_HOME for subdirectories
        ──► For each, check docker container status
@@ -234,9 +252,12 @@ dist/wod                             # Single compiled executable (all templates
 ~/wod/                               # WOD_HOME (configurable)
 └── <instance-name>/
     ├── docker-compose.yml           # Generated from template
+    ├── .env                         # Port and hostname config (HTTP_PORT, HTTPS_PORT, HOSTNAMES)
     ├── wp-php-custom/
     │   ├── Dockerfile               # Generated from template
-    │   └── default.ini              # PHP config (upload limits)
+    │   ├── default.ini              # PHP config (upload limits)
+    │   ├── cert.pem                 # Self-signed TLS certificate
+    │   └── cert.key                 # TLS private key
     └── site/                        # WordPress files (bind-mounted)
         ├── wp-config.php
         ├── wp-content/
@@ -245,12 +266,6 @@ dist/wod                             # Single compiled executable (all templates
         │   ├── uploads/
         │   └── ...
         └── ...
-```
-
-### 4.3 User Configuration
-
-```
-~/.config/wod/wod.conf               # Optional user defaults
 ```
 
 ---
@@ -266,7 +281,10 @@ dist/wod                             # Single compiled executable (all templates
 | `WORDPRESS_VERSION` | `6.9.1` | WordPress version number |
 | `PHP_VERSION` | `8.5` | PHP version number |
 | `MYSQL_VERSION` | `5.7` | MySQL version number |
-| `SITEURL` | `https://127.0.0.1:8443` | Local URL for the WordPress site |
+| `HTTP_PORT` | `8000` | HTTP port for the WordPress container |
+| `HTTPS_PORT` | `8443` | HTTPS port for the WordPress container |
+| `HOSTNAMES` | *(empty)* | Comma-separated hostnames for TLS cert SANs and container `/etc/hosts` |
+| `SITEURL` | *(computed)* | Override for the WordPress site URL. When not set, computed as `https://<first-hostname>:<HTTPS_PORT>` if hostnames are configured, otherwise `https://127.0.0.1:<HTTPS_PORT>`. Can be overridden via `--site-url` on restore. |
 
 > **Removed from original:** `SCRIPT_HOME`, `TEMPLATE_DIR`, `WORDPRESS_TAG`,
 > and `BACKUP_PREFIX` were specific to the Bash implementation. In wod2,
@@ -276,28 +294,14 @@ dist/wod                             # Single compiled executable (all templates
 
 ### 5.2 Configuration Precedence (Highest to Lowest)
 
-1. **Command-line arguments** (e.g., `wod create mysite /path/to/backup`)
+1. **Command-line arguments** (e.g., `wod create mysite --php-version 8.3`)
 2. **Shell environment variables** (e.g., `WORDPRESS_VERSION=5.9 wod create mysite`)
-3. **User config file** (`~/.config/wod/wod.conf`)
-4. **Built-in defaults** (hardcoded in `wod-create`)
+3. **Built-in defaults** (hardcoded in `resolveCreateConfig()`)
 
-### 5.3 User Config File Format
-
-The file `~/.config/wod/wod.conf` is a simple `KEY=VALUE` file, one per line.
-Lines starting with `#` are comments. The file is loaded using:
-
-```bash
-export $(grep -v '^#' $HOME/.config/wod/wod.conf | xargs -d '\n') &>/dev/null
-```
-
-Example contents:
-```
-WORDPRESS_VERSION=6.9.1
-PHP_VERSION=8.5
-MYSQL_VERSION=5.7
-SITEURL=http://127.0.0.1:9000
-TEMPLATE_NAME=php8.2
-```
+Each instance also stores its port and hostname configuration in a `.env` file
+within the instance directory. Docker Compose reads this file automatically for
+port interpolation in `docker-compose.yml`. The `wod up` command can override
+ports, which updates the `.env` file.
 
 ---
 
@@ -306,59 +310,43 @@ TEMPLATE_NAME=php8.2
 ### 6.1 Top-Level Syntax
 
 ```
-wod <command> [arguments...]
+wod [--verbose] <command> [arguments...]
 ```
 
-If no command is given, help text is printed.
+If no command is given, help text is printed (via Commander.js).
 
 ### 6.2 Available Commands
 
-| Command | Arguments | Description |
-|---------|-----------|-------------|
-| `create` | `<name> [backup-directory]` | Create a new WordPress instance |
-| `ls` | *(none)* | List all instances with status |
-| `up` | `<name>` | Start a stopped instance |
-| `down` | `<name>` | Stop a running instance |
-| `rm` | `<name>` | Remove an instance completely |
-| `restore` | `<name> <backup-directory>` | Restore backup into existing instance |
-| `install` | *(none)* | Extract bundled templates to `<WOD_HOME>/.template/` for customization |
-| `wp` | `<name> <wp-cli-command...>` | Run wp-cli command on instance |
-| `help` | `<command>` | Show help for a command |
-| `bootstrap` | `[functions]` | Output shell initialization code *(original Bash only)* |
+| Command | Arguments | Options | Description |
+|---------|-----------|---------|-------------|
+| `create` | `<name> [backup-directory]` | `--http-port`, `--https-port`, `--php-version`, `--wordpress-version`, `--template`, `--hostnames`, `--keep-urls` | Create a new WordPress instance |
+| `ls` | *(none)* | | List all instances with status |
+| `up` | `<name>` | `--http-port`, `--https-port` | Start a stopped instance |
+| `down` | `<name>` | | Stop a running instance |
+| `rm` | `<name>` | | Remove an instance completely |
+| `restore` | `<name> <backup-directory>` | `--keep-urls`, `--site-url` | Restore backup into existing instance |
+| `update` | `<name>` | `--php-version`, `--wordpress-version`, `--template`, `--hostnames` | Update instance with new versions |
+| `install` | *(none)* | | Extract bundled templates to `<WOD_HOME>/.template/` for customization |
+| `wp` | `<name> <wp-cli-command...>` | | Run wp-cli command on instance |
+
+The global `--verbose` flag causes all Docker commands and their output to be
+printed to stderr.
 
 ### 6.3 Command Dispatch Mechanism
 
-The dispatcher (`bin/wod`):
+wod2 uses **Commander.js** for CLI routing. The `createProgram()` function in
+`src/cli/cli.ts` creates a `Command` instance and registers each subcommand
+with its own argument definitions, option definitions, and action handler.
 
-1. Evaluates its own bootstrap to set up `SCRIPT_HOME` and the `wp` shell
-   function.
-2. If no argument, sources `functions` and calls `print_help` on itself.
-3. If the argument is `bootstrap`, calls `wod_bootstrap` and exits.
-4. Otherwise, checks if `$SCRIPT_HOME/wod-<command>` exists:
-   - If yes: executes it, passing remaining arguments.
-   - If no: prints "Invalid command" and help text, exits with code 1.
+Commander.js handles:
+- Argument and option parsing
+- Help text generation (via `--help` on any command)
+- Version display (via `--version`)
+- Unknown command errors
 
-### 6.4 Bootstrap Mechanism
-
-The `bootstrap` command outputs shell code to be `eval`'d in `.bashrc`:
-
-```bash
-eval `wod bootstrap`
-```
-
-This outputs:
-```bash
-export SCRIPT_HOME=${SCRIPT_HOME:-/usr/lib/wod/bin};
-function wp () { ${SCRIPT_HOME}/wp "$@"; };
-```
-
-When called with `functions` argument (internal use only), it additionally outputs:
-```bash
-source ${SCRIPT_HOME}/functions;
-```
-
-The `wp` function wrapper allows `wp` typed at the shell to route through WOD's
-`wod-wp` script, which provides instance-aware wp-cli execution.
+Each action handler resolves configuration (via `resolveConfig()` and
+`resolveCreateConfig()`), instantiates dependencies (`BunProcessRunner`,
+`RealFilesystem`), and delegates to the corresponding command module.
 
 ---
 
@@ -372,43 +360,58 @@ The `wp` function wrapper allows `wp` typed at the shell to route through WOD's
 - `name` (required): Unique name for the instance
 - `backup-directory` (optional): Path to directory containing backup archives
 
+**Options:**
+- `--http-port <port>`: HTTP port (default: 8000)
+- `--https-port <port>`: HTTPS port (default: 8443)
+- `--php-version <version>`: PHP version (default: 8.5)
+- `--wordpress-version <version>`: WordPress version (default: 6.9.1)
+- `--template <name>`: Template name (default: custom)
+- `--hostnames <hostnames>`: Comma-separated hostnames for TLS cert SANs and container `/etc/hosts`
+- `--keep-urls`: Keep original siteurl and home from backup (skip URL rewrite)
+
 **Algorithm:**
 
-1. Source bootstrap with functions.
-2. Validate arguments: exactly 1 or 2 arguments required.
-3. Set default configuration values (see Section 5.1).
-4. Load user config file if it exists (`~/.config/wod/wod.conf`).
-5. Override `TARGET_NAME` from first argument; `BACKUP_PREFIX` from second
-   argument (or from config).
-6. Compute `WORDPRESS_TAG` as `<WP_VERSION>-php<PHP_VERSION>-apache` unless
-   already set.
-7. **Prerequisite checks** (all must pass or exit with error):
+1. Validate instance name (no slashes, must not start with `.`).
+2. Resolve configuration from CLI options, environment variables, and defaults.
+3. **Prerequisite checks** (all must pass or exit with error):
    a. Target directory must not already exist.
-   b. No Docker container with name `<name>_wordpress_*` must exist (running
+   b. No Docker container with name `<name>-wordpress-*` must exist (running
       or stopped).
-   c. No Docker container with name `<name>_db_*` must exist (running or
+   c. No Docker container with name `<name>-db-*` must exist (running or
       stopped).
    d. No Docker volume named `<name>_db_data` must exist.
    e. If `backup-directory` specified, it must be a valid directory.
-8. Resolve the template source (user-customized `<WOD_HOME>/.template/<name>/`
+4. Resolve the template source (user-customized `<WOD_HOME>/.template/<name>/`
    or bundled) and render template files to the instance directory using
    Handlebars (see Section 9 for details). This produces the final
    `docker-compose.yml`, `Dockerfile`, and `default.ini` with the correct
    version strings.
-12. Change to instance directory.
-13. Run `docker compose up -d`.
-14. Sleep 10 seconds (wait for database initialization).
-15. Install WordPress core:
+5. Write `.env` file with `HTTP_PORT`, `HTTPS_PORT`, and `HOSTNAMES` (if any).
+6. Generate self-signed TLS certificate via `openssl` with Subject Alternative
+   Names (SANs) for `localhost` plus any configured hostnames.
+7. Run `docker compose up --build -d`.
+8. Sleep 10 seconds (wait for database initialization).
+9. Install WordPress core:
+   ```
+   wp core install --url=<SITEURL> --title="Testing WordPress"
+       --admin_user="admin" --admin_email="admin@127.0.0.1"
+   ```
+   The admin password is auto-generated by wp-cli and extracted from stdout.
+10. Set up pretty permalinks via `wp eval`:
+    ```php
+    global $is_apache, $wp_rewrite;
+    $is_apache = true;
+    $wp_rewrite->set_permalink_structure('/%postname%/');
+    flush_rewrite_rules(true);
     ```
-    wp core install --url=<SITEURL> --title="Testing WordPress"
-        --admin_user="admin" --admin_email="admin@127.0.0.1"
-    ```
-    Note: Password is auto-generated by wp-cli and displayed in output.
-16. If `BACKUP_PREFIX` is set:
-    a. Run `wod-restore <name> <backup-directory>`.
-    b. Update site URL: `wp option set siteurl <SITEURL>`
-    c. Update home URL: `wp option set home <SITEURL>`
-17. Print "Website ready at `<SITEURL>`".
+    This uses `wp eval` instead of `wp rewrite` commands because the wp-cli
+    sidecar container cannot detect Apache's mod_rewrite. Setting `$is_apache`
+    ensures WordPress writes `.htaccess`.
+11. If `backup-directory` is set:
+    a. Run `restore` (see §7.6).
+    b. Unless `--keep-urls` was specified, update site URL and home URL to
+       the computed `SITEURL`.
+12. Print admin password and "Website ready at `<SITEURL>`".
 
 **Exit codes:**
 - 0: Success
@@ -423,24 +426,22 @@ The `wp` function wrapper allows `wp` typed at the shell to route through WOD's
 
 **Algorithm:**
 
-1. Source bootstrap with functions.
-2. List contents of `WOD_HOME` directory. If empty, print "No wod instances
+1. List contents of `WOD_HOME` directory. If empty, print "No wod instances
    found." and exit.
-3. Check if Docker daemon is running (store result).
-4. Print header:
+2. Check if Docker daemon is running (store result).
+3. Print header:
    ```
    d w |
    b p | name
    ====#=========================
    ```
-5. For each subdirectory in `WOD_HOME`:
+4. For each subdirectory in `WOD_HOME`:
    a. Print database status character:
       - `E` if Docker is not running
       - `*` if container `<name>-db-*` is running
       - `.` otherwise
    b. Print WordPress status character (same logic with `<name>-wordpress-*`).
    c. If both containers are running:
-      - Change to instance directory
       - Query `wp option get siteurl`
       - Print `| <name> at <siteurl>`
    d. Else print `| <name>`
@@ -450,7 +451,7 @@ The `wp` function wrapper allows `wp` typed at the shell to route through WOD's
 d w |
 b p | name
 ====#=========================
-* * | staging-b at http://127.0.0.1:8000
+* * | staging-b at https://127.0.0.1:8443
 . . | old-site
 ```
 
@@ -465,15 +466,18 @@ b p | name
 **Arguments:**
 - `name` (required): Instance name
 
+**Options:**
+- `--http-port <port>`: HTTP port (overrides `.env`)
+- `--https-port <port>`: HTTPS port (overrides `.env`)
+
 **Algorithm:**
 
-1. Source bootstrap with functions.
-2. Validate exactly 1 argument.
-3. Call `ensure_target` to verify instance directory exists.
-4. Change to instance directory.
-5. Run `docker compose up -d`.
-6. If successful, query and display site URL via `wp option get siteurl`.
-7. Print "Website ready at `<SITEURL>`".
+1. Validate instance name.
+2. Verify instance directory exists.
+3. If port overrides were specified, write new `.env` file with the updated ports.
+4. Run `docker compose up -d`.
+5. If successful, query and display site URL via `wp option get siteurl`.
+6. Print "Website ready at `<SITEURL>`".
 
 **Exit codes:** Passes through the exit code from `docker compose up`.
 
@@ -486,11 +490,9 @@ b p | name
 
 **Algorithm:**
 
-1. Source bootstrap with functions.
-2. Validate exactly 1 argument.
-3. Call `ensure_target` to verify instance directory exists.
-4. Change to instance directory.
-5. Run `docker compose down`.
+1. Validate instance name.
+2. Verify instance directory exists.
+3. Run `docker compose down`.
 
 **Exit codes:** Passes through the exit code from `docker compose down`.
 
@@ -503,14 +505,13 @@ b p | name
 
 **Algorithm:**
 
-1. Source bootstrap with functions.
-2. Validate exactly 1 argument.
-3. Call `ensure_target` to verify instance directory exists.
-4. Print "Removing `<name>`".
-5. Acquire sudo credentials (`sudo -v`).
-6. If `docker-compose.yml` exists in instance directory, run `wod-down <name>`.
-7. If instance directory exists, run `sudo rm -rf <directory>`.
-8. Query for Docker volume named `<name>_db_data`; if it exists, run
+1. Validate instance name.
+2. Verify instance directory exists.
+3. Print "Removing `<name>`".
+4. Acquire sudo credentials (`sudo -v`).
+5. If `docker-compose.yml` exists in instance directory, run `docker compose down`.
+6. If instance directory exists, run `sudo rm -rf <directory>`.
+7. Query for Docker volume named `<name>_db_data`; if it exists, run
    `docker volume rm <volume_name>`.
 
 **Notes:**
@@ -525,6 +526,10 @@ b p | name
 - `name` (required): Instance name (must already exist)
 - `backup-directory` (required): Path to directory containing backup files
 
+**Options:**
+- `--keep-urls`: Keep original siteurl and home from backup (skip URL rewrite)
+- `--site-url <url>`: Override the site URL used for rewriting (default: computed from instance `.env` file as `https://<first-hostname>:<HTTPS_PORT>` or `https://127.0.0.1:<HTTPS_PORT>`)
+
 **Expected backup file patterns:**
 ```
 backup*-plugins.zip      # WordPress plugins
@@ -537,26 +542,23 @@ backup*-db.gz            # Database dump (UpdraftPlus format)
 
 **Algorithm:**
 
-1. Source bootstrap with functions.
-2. Validate exactly 2 arguments.
-3. Call `ensure_target` to verify instance directory exists.
-4. Validate backup directory exists.
-5. Change to instance directory.
-6. **Restore content archives** -- for each content type in order:
+1. Validate instance name.
+2. Validate instance directory exists.
+3. Validate backup directory exists.
+4. **Restore content archives** -- for each content type in order:
    `plugins`, `themes`, `uploads`, `others`:
    a. If no matching zip files found, print warning and skip.
    b. If the `site/wp-content/<type>` directory exists, delete it
       (`sudo rm -rf`).
    c. For each zip file matching `backup*-<type>*.zip` in the backup directory:
-      - Verify the file exists (glob may not expand).
       - Extract to `site/wp-content/` using `sudo unzip -od site/wp-content`.
    d. Note: The content type may be split across multiple zip files (e.g.,
       `backup_2024-01-01-uploads.zip`, `backup_2024-01-01-uploads2.zip`).
-7. **Fix file permissions:**
+5. **Fix file permissions:**
    ```
    sudo chown -R www-data:www-data site/wp-content
    ```
-8. **Restore database:**
+6. **Restore database:**
    a. Look for `backup*-db.gz` in the backup directory.
    b. If not found, fall back to `*.sql.gz`.
    c. If still not found, print warning and skip database restore.
@@ -568,7 +570,8 @@ backup*-db.gz            # Database dump (UpdraftPlus format)
       - Key extracted variable: `table_prefix`.
    e. **Update table prefix** (if found in header):
       - Read `site/wp-config.php` via `sudo cat`.
-      - Replace the `$table_prefix = '...'` value in TypeScript.
+      - Replace the `$table_prefix = '...'` value in TypeScript (handles
+        both the static format and Docker's `getenv_docker()` format).
       - Write back via `sudo tee`.
    f. **Import database** with SQL compatibility fix:
       - Create a streaming pipeline: `fs.createReadStream` → `zlib.createGunzip()`
@@ -580,6 +583,8 @@ backup*-db.gz            # Database dump (UpdraftPlus format)
           ```
         - Remove lines starting with `/*M!` (MariaDB-specific directives).
       - The transformed SQL is piped as a `ReadableStream` to `wp db import -`.
+7. **Rewrite site URL** (unless `--keep-urls` was specified):
+   - Set `siteurl` and `home` options via wp-cli to the resolved site URL.
 
 **UpdraftPlus Header Format Example:**
 ```
@@ -602,40 +607,24 @@ backup*-db.gz            # Database dump (UpdraftPlus format)
 **Purpose:** Execute wp-cli commands against a running WOD instance.
 
 **Arguments:**
-- `name` (required, but see below): Instance name
+- `name` (required): Instance name
 - All remaining arguments are passed to wp-cli
-
-**Instance name detection logic:**
-
-The script can be invoked two ways:
-
-1. **As `wod wp <name> ...`**: The first argument is the instance name,
-   remaining args go to wp-cli.
-2. **As `wp ...`** (via the shell function/symlink): The instance name is
-   auto-detected:
-   - If the current working directory is inside `WOD_HOME`, extract the
-     instance name from the relative path (first path component after
-     `WOD_HOME`).
-   - If not inside `WOD_HOME`, fall back to the system `wp` binary (if
-     available and different from this script). If no system wp exists, print
-     error and exit.
 
 **Algorithm:**
 
-1. Source bootstrap with functions.
-2. Determine instance name (see detection logic above).
-3. Look up the running WordPress container:
+1. Validate instance name.
+2. Look up the running WordPress container:
    a. Search for container with name matching `<name>-wordpress`.
    b. If not found, try again with hyphens stripped from the name (for older
       Docker versions that stripped hyphens from project names).
    c. If still not found, print error and exit.
-4. Determine input mode:
+3. Determine input mode:
    - If stdin is a TTY: use `-it` flags for Docker (interactive + pseudo-TTY).
    - If stdin is a pipe: use `-i` flag only (interactive, no TTY).
-5. Execute wp-cli via Docker:
+4. Execute wp-cli via Docker:
    ```
    docker run <input-flags> --rm \
-       --env-file <(docker exec <container> /bin/env | grep "^WORDPRESS") \
+       --env <WORDPRESS_*=...> ... \
        --volumes-from <container> \
        --network container:<container> \
        --user 33:33 \
@@ -643,9 +632,9 @@ The script can be invoked two ways:
    ```
 
 **Key Docker flags explained:**
-- `--env-file <(...)`: Extracts `WORDPRESS_*` environment variables from the
-  running container and passes them to the wp-cli container. This ensures
-  wp-cli has the correct database credentials.
+- `--env ...`: Passes `WORDPRESS_*` environment variables extracted from the
+  running container (with baseline defaults for DB credentials). This ensures
+  wp-cli has the correct database connection settings.
 - `--volumes-from`: Mounts the same volumes as the WordPress container, giving
   wp-cli access to the site files.
 - `--network container:<container>`: Shares the network namespace, allowing
@@ -654,76 +643,96 @@ The script can be invoked two ways:
   the WordPress container. This is a workaround because the wp-cli and
   WordPress containers may have different UID/GID mappings for www-data.
 
-### 7.8 `wod help <command>`
+### 7.8 `wod update <name>`
 
-**Purpose:** Display help text for a specific command.
+**Purpose:** Update an existing instance with new PHP/WordPress versions,
+template, or hostnames.
 
 **Arguments:**
-- `command` (required): Command name (without `wod-` prefix)
+- `name` (required): Instance name
+
+**Options:**
+- `--php-version <version>`: PHP version
+- `--wordpress-version <version>`: WordPress version
+- `--template <name>`: Template name
+- `--hostnames <hostnames>`: Comma-separated hostnames for TLS cert SANs
 
 **Algorithm:**
 
-1. Source bootstrap with functions.
-2. Validate exactly 1 argument.
-3. Check if file `$SCRIPT_HOME/wod-<command>` exists.
-4. If yes: call `print_help` on it.
-5. If no: print "Command `<command>` not found."
+1. Validate instance name.
+2. Verify instance directory exists.
+3. If `--hostnames` is not specified, read existing hostnames from the instance
+   `.env` file to preserve them.
+4. Resolve configuration from CLI options, environment variables, and defaults.
+5. Run `docker compose down` to stop containers.
+6. Re-render template files (Dockerfile, docker-compose.yml, etc.) with new
+   version variables via Handlebars.
+7. Regenerate self-signed TLS certificate with SANs for `localhost` plus
+   configured hostnames.
+8. Run `docker compose up --build -d` to rebuild the image and start containers.
+9. Print "Website ready at `<SITEURL>`".
+
+**Exit codes:**
+- 0: Success
+- 1: Instance directory does not exist
+- (other): Passed through from Docker commands
 
 ---
 
 ## 8. Shared Utility Functions
 
-These functions (defined in `lib/functions`) are sourced by all subcommands.
+wod2 organizes shared functionality into TypeScript modules with interface-based
+abstractions for testability.
 
-### `wod_init()`
+### `ProcessRunner` interface (`src/docker/process-runner.ts`)
 
-- Called automatically when `functions` is sourced.
-- Sets `WOD_HOME` to `~/wod` if not already set.
-- Creates `WOD_HOME` directory if it doesn't exist (`mkdir -p`).
+Abstracts external process execution. Two methods:
 
-### `print_help(path)`
+- `run(command, options?)`: Synchronous execution via `Bun.spawnSync()`. Returns
+  `{ exitCode, stdout, stderr }`.
+- `runAsync(command, options?)`: Asynchronous execution via `Bun.spawn()` with
+  support for streaming stdin (used for database import). Returns a Promise.
 
-- Extracts help text from script file headers.
-- Reads from line 2 of the file until the first blank line.
-- Strips leading `# ` or `#` from each line.
-- Parameter: path to the script file. Defaults to `$0` (the currently
-  executing script).
+The `BunProcessRunner` implementation accepts a `verbose` option that logs all
+commands and their output to stderr when enabled.
 
-**Implementation:** `cat <file> | sed -ne '2,/^$/{s/^#\s\?//;p}'`
+### `Filesystem` interface (`src/utils/filesystem.ts`)
 
-### `target_dir(name)`
+Abstracts filesystem operations for testability:
 
-- Returns the full path: `$WOD_HOME/<name>`.
-- Output via `echo` (intended to be captured with command substitution).
+- `listSubdirectories(path)`: List subdirectory names in a directory
+- `ensureDirectory(path)`: Create directory and parents
+- `isDirectory(path)`: Check if path is a directory
+- `writeFile(path, content)`: Write file content
+- `readFile(path)`: Read file content as string
+- `fileExists(path)`: Check if path is a file
+- `globFiles(dir, pattern)`: Match filenames against a glob pattern
+- `listFilesRecursive(path)`: List all files recursively
 
-### `ensure_target(name)`
+The `RealFilesystem` implementation uses Node.js `fs` functions.
 
-- Checks if `target_dir(name)` is an existing directory.
-- If not: prints error message and exits with code 1.
+### Docker utilities (`src/docker/docker.ts`)
 
-### `docker_is_running()`
+- `dockerIsRunning(runner)`: Runs `docker version` and returns true if exit
+  code is 0.
+- `containerIsRunning(runner, name, service)`: Checks if a container matching
+  `<name>-<service>-*` is running.
+- `containerExists(runner, name, service)`: Same but includes stopped containers
+  (uses `-a` flag).
+- `volumeExists(runner, volumeName)`: Checks if a named Docker volume exists.
+- `getWordPressEnvVars(runner, containerId)`: Extracts `WORDPRESS_*` env vars
+  from a running container, merged with baseline defaults for DB credentials.
+- `querySiteUrl(runner, instanceName)`: Finds the running WordPress container
+  and queries `wp option get siteurl` via the wp-cli sidecar.
 
-- Runs `docker version` and returns its exit code.
-- Returns 0 if Docker daemon is accessible, non-zero otherwise.
+### Configuration (`src/config/config.ts`, `src/config/create-config.ts`)
 
-### `ensure_docker()`
-
-- Checks if Docker is running.
-- If not: prints "Docker daemon is not running." and exits with code 1.
-
-### `container_is_running(name, service)`
-
-- Checks if a Docker container matching `<name>-<service>-*` is currently
-  running.
-- Uses `docker container ls -qf "name=<name>-<service>-"` (lists only running
-  containers).
-- Returns 0 if a container ID is found, 1 otherwise.
-
-### `container_exists(name, service)`
-
-- Same as `container_is_running` but includes stopped containers.
-- Uses `docker container ls -aqf "name=<name>-<service>-"` (the `-a` flag
-  includes stopped containers).
+- `resolveConfig(overrides?)`: Returns `WodConfig` with `wodHome` resolved from
+  overrides, `WOD_HOME` env var, or `~/wod` default.
+- `resolveCreateConfig(overrides?)`: Returns `CreateConfig` with version numbers,
+  ports, hostnames, template name, and computed site URL — resolved from
+  overrides, env vars, and defaults.
+- `targetDir(config, name)`: Returns full path `<wodHome>/<name>`.
 
 ---
 
@@ -768,6 +777,7 @@ Handlebars templates receive a `TemplateVars` object with the following fields:
 | `phpGdLegacy` | `false` | `true` for PHP < 7.4 (old-style `--with-freetype-dir` GD flags) |
 | `phpAvifSupported` | `true` | `true` for PHP >= 8.1 (adds `--with-avif` to GD configure) |
 | `phpMcryptAvailable` | `false` | `true` for PHP < 7.2 (installs mcrypt extension) |
+| `hostnames` | `["mysite.local"]` | `CreateConfig.hostnames` (comma-separated CLI input → array) |
 
 ### 9.4 Template Bundling and Resolution
 
@@ -958,7 +968,7 @@ sidecar container that:
 - Shares the network namespace with the running WordPress container
 - Runs as UID/GID 33:33 (www-data)
 - Receives `WORDPRESS_*` environment variables extracted from the running
-  container
+  container (merged with baseline DB credential defaults)
 
 This means wp-cli has full access to the WordPress files and can communicate
 with the database, but runs in its own ephemeral container that is removed
@@ -970,42 +980,23 @@ When stdin is a TTY (interactive shell), Docker is invoked with `-it`.
 When stdin is a pipe (e.g., `echo "SELECT 1" | wod wp mysite db query`),
 Docker is invoked with `-i` only (no pseudo-TTY).
 
-### 11.3 System wp-cli Coexistence
-
-When invoked as `wp` (via the symlink or shell function):
-
-1. If the current directory is inside `WOD_HOME`, auto-detect the instance.
-2. If outside `WOD_HOME`, look for a system `wp` binary and delegate to it.
-3. If no system `wp` exists, print error.
-
-This allows WOD to coexist with a globally installed wp-cli.
-
 ---
 
 ## 12. Installation & Packaging
 
-### 12.1 Makefile Targets
+wod2 compiles to a single self-contained executable using Bun's ahead-of-time
+compiler:
 
-| Target | Description |
-|--------|-------------|
-| `make install` | Install everything (bin + lib + templates) |
-| `make uninstall` | Remove all installed files |
-| `make bin` | Install only the main `wod` script to `/usr/bin/` |
-| `make lib` | Install library scripts to `/usr/lib/wod/bin/` |
-| `make templates` | Install Docker templates to `/usr/lib/wod/template/` |
+```bash
+bun build --compile --target=bun-linux-x64 src/index.ts --outfile dist/wod
+```
 
-### 12.2 Installation Paths
+The resulting `dist/wod` binary includes the Bun runtime, all TypeScript code,
+all npm dependencies, and all Handlebars templates (embedded at compile time
+via `import ... with { type: "text" }` in `src/templates/bundled-templates.ts`).
 
-| Source | Destination |
-|--------|-------------|
-| `bin/wod` | `/usr/bin/wod` |
-| `lib/*` | `/usr/lib/wod/bin/` |
-| `template/*/` | `/usr/lib/wod/template/` |
-
-### 12.3 File Permissions
-
-- Scripts are installed with `install` (executable permissions).
-- Template files are installed with `install -Dm 644` (read-only).
+No Makefile, no `/usr/lib/wod/` directory, and no separate template files are
+needed. Users can simply copy `dist/wod` to a directory on their `PATH`.
 
 ---
 
@@ -1015,7 +1006,7 @@ This allows WOD to coexist with a globally installed wp-cli.
 
 ```
 wod create devsite
-# → Creates a fresh WordPress 6.9.1 instance at http://127.0.0.1:8000
+# → Creates a fresh WordPress 6.9.1 instance at https://127.0.0.1:8443
 # → Admin user: admin, password: auto-generated
 ```
 
@@ -1032,9 +1023,9 @@ wod create staging ~/backups/production-2024-01/
 ```
 wod create testsite
 wod restore testsite ~/backups/mysite/
-wod wp testsite search-replace https://example.com http://127.0.0.1:8000
-wod wp testsite option set siteurl http://127.0.0.1:8000
-wod wp testsite option set home http://127.0.0.1:8000
+wod wp testsite search-replace https://example.com https://127.0.0.1:8443
+wod wp testsite option set siteurl https://127.0.0.1:8443
+wod wp testsite option set home https://127.0.0.1:8443
 ```
 
 ### 13.4 Test with Different PHP Versions
@@ -1058,9 +1049,9 @@ wod ls
 # d w |
 # b p | name
 # ====#=========================
-# * * | staging-b at http://127.0.0.1:8000
+# * * | staging-b at https://127.0.0.1:8443
 # . . | old-site
-# * * | devsite at http://127.0.0.1:9000
+# * * | devsite at https://mysite.local:9443
 
 wod down staging-b
 wod up old-site
@@ -1087,13 +1078,30 @@ wod wp mysite user list
 wod wp mysite cache flush
 ```
 
-### 13.7 Working Within an Instance Directory
+### 13.7 Custom Ports and Hostnames
 
 ```
-cd ~/wod/mysite
-# The `wp` command auto-detects the instance from CWD
-wp plugin list
-wp option get siteurl
+# Run on non-default ports
+wod create mysite --http-port 9000 --https-port 9443
+
+# Configure a custom hostname (added to TLS cert SANs)
+wod create mysite --hostnames mysite.local,mysite.test
+
+# Override ports when starting an existing instance
+wod up mysite --http-port 9000 --https-port 9443
+```
+
+### 13.8 Update an Instance
+
+```
+# Upgrade PHP version
+wod update mysite --php-version 8.3
+
+# Change WordPress version and PHP version
+wod update mysite --wordpress-version 6.8 --php-version 8.2
+
+# Update hostnames (regenerates TLS cert)
+wod update mysite --hostnames newhost.local
 ```
 
 ---
@@ -1115,8 +1123,9 @@ These items are documented in `TODO.md` and observed in the code:
    Docker behavior of stripping hyphens from project names. The code has a
    workaround but it may not cover all edge cases.
 
-4. **Instance names with dots:** Names containing dots (`.`) may cause
-   container name lookup failures (documented as a bug in `TODO.md`).
+4. **Instance names with dots:** Names starting with `.` are rejected with a
+   validation error. Names containing dots elsewhere may still cause container
+   name lookup failures.
 
 5. **No WordPress version auto-detection:** When restoring from backup,
    WOD cannot automatically determine the original WordPress version from
@@ -1129,30 +1138,39 @@ These items are documented in `TODO.md` and observed in the code:
 7. **sudo requirement:** File operations on `site/wp-content/` require sudo
    because the files are owned by `www-data` (UID 33) inside the container.
 
-8. **~~Single port conflicts:~~** *(Resolved — ports are now configurable via
-   `--http-port` and `--https-port` CLI flags.)*
-
-9. **.htaccess handling:** The restore process may overwrite existing
+8. **.htaccess handling:** The restore process may overwrite existing
    `.htaccess` files without backup.
 
-10. **Template documentation:** The template system (multiple PHP version
-    templates) is not yet documented in user-facing help.
+9. **Template documentation:** The template system (multiple PHP version
+   templates) is not yet documented in user-facing help.
+
+10. **Config file support:** A user configuration file (`~/.config/wod/wod.conf`)
+    for persistent default overrides is not yet implemented. Currently, defaults
+    can only be overridden via CLI flags or environment variables.
+
+11. **wp CWD auto-detection:** The original Bash `wp` shell function could
+    auto-detect the instance name when the current directory was inside
+    `WOD_HOME`. In wod2, the instance name is always required as the first
+    argument to `wod wp`. A future enhancement could restore CWD-based
+    detection and system wp-cli fallback.
 
 ---
 
 ## Appendix A: Complete Command Reference
 
 ```
-wod                             # Show help
-wod help <command>              # Show help for a command
-wod create <name> [backup-dir] # Create new instance
-wod ls                          # List all instances
-wod up <name>                   # Start instance
-wod down <name>                 # Stop instance
-wod rm <name>                   # Remove instance
-wod restore <name> <backup-dir> # Restore backup
-wod install                     # Extract bundled templates for customization
-wod wp <name> <command...>      # Run wp-cli command
+wod                                 # Show help
+wod --help                          # Show help
+wod <command> --help                # Show help for a command
+wod create <name> [backup-dir]     # Create new instance
+wod ls                              # List all instances
+wod up <name>                       # Start instance
+wod down <name>                     # Stop instance
+wod rm <name>                       # Remove instance
+wod restore <name> <backup-dir>    # Restore backup
+wod update <name>                   # Update instance versions
+wod install                         # Extract bundled templates for customization
+wod wp <name> <command...>          # Run wp-cli command
 ```
 
 ## Appendix B: Docker Container Lookup Patterns
