@@ -77,8 +77,7 @@ function setupSuccessRunner(): MockProcessRunner {
     exitCode: 0,
     stdout: "Admin password: xK7$m2pQ\nSuccess: WordPress installed.\n",
   });
-  // wp rewrite structure + flush
-  runner.addResponse(["docker", "run"], { exitCode: 0 });
+  // wp eval: set permalink structure + flush rewrite rules
   runner.addResponse(["docker", "run"], { exitCode: 0 });
   return runner;
 }
@@ -524,12 +523,13 @@ describe("createInstance", () => {
       const deps = createDeps({ processRunner: runner, filesystem: fs });
       await createInstance(deps, "mysite");
 
-      const rewriteCalls = runner.recordedCalls.filter((c) => c.command.includes("rewrite"));
-      expect(rewriteCalls).toHaveLength(2);
-      expect(rewriteCalls[0].command).toContain("structure");
-      expect(rewriteCalls[0].command).toContain("/%postname%/");
-      expect(rewriteCalls[1].command).toContain("flush");
-      expect(rewriteCalls[1].command).toContain("--hard");
+      const evalCall = runner.recordedCalls.find((c) => c.command.includes("eval"));
+      expect(evalCall).toBeDefined();
+      expect(evalCall?.command).toContain("eval");
+      const evalArg = evalCall?.command.find((a) => a.includes("set_permalink_structure"));
+      expect(evalArg).toContain("/%postname%/");
+      expect(evalArg).toContain("flush_rewrite_rules(true)");
+      expect(evalArg).toContain("$is_apache = true");
     });
 
     test("returns custom site URL when configured", async () => {

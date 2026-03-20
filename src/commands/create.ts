@@ -206,8 +206,11 @@ export async function createInstance(
     "wp",
   ];
 
-  processRunner.run([...wpCliBase, "rewrite", "structure", "/%postname%/"]);
-  processRunner.run([...wpCliBase, "rewrite", "flush", "--hard"]);
+  processRunner.run([
+    ...wpCliBase,
+    "eval",
+    "global $is_apache, $wp_rewrite; $is_apache = true; $wp_rewrite->set_permalink_structure('/%postname%/'); flush_rewrite_rules(true);",
+  ]);
 
   // Restore backup if backupDir was provided
   if (backupDir) {
