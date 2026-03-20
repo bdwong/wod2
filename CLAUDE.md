@@ -58,6 +58,16 @@ bunx biome lint .         # Lint only
 
 Run lint/format checks before committing.
 
+### Documentation
+
+Keep project documentation (`README.md`, `ARCHITECTURE.md`, etc.) up to date when making changes that affect documented behavior, architecture, CLI usage, or configuration. Specifically:
+
+- **README.md** — Update when adding/removing commands, changing installation steps, or modifying usage examples
+- **ARCHITECTURE.md** — Update when changing system design, adding new components, modifying data flow, or altering key architecture decisions
+- **CLAUDE.md** — Update when changing dev workflow, conventions, project structure, tech stack, or build/test commands
+
+Review relevant docs as part of any feature or refactor work and include doc updates in the same commit as the code change.
+
 ### Git Workflow
 
 - Commit frequently with clear, descriptive messages
