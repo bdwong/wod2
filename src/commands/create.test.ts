@@ -77,6 +77,9 @@ function setupSuccessRunner(): MockProcessRunner {
     exitCode: 0,
     stdout: "Admin password: xK7$m2pQ\nSuccess: WordPress installed.\n",
   });
+  // wp rewrite structure + flush
+  runner.addResponse(["docker", "run"], { exitCode: 0 });
+  runner.addResponse(["docker", "run"], { exitCode: 0 });
   return runner;
 }
 
@@ -512,6 +515,21 @@ describe("createInstance", () => {
       const deps = createDeps({ processRunner: runner, filesystem: fs });
       const result = await createInstance(deps, "mysite");
       expect(result.adminPassword).toBe("xK7$m2pQ");
+    });
+
+    test("sets up pretty permalinks after wp core install", async () => {
+      const fs = new MockFilesystem();
+      fs.addDirectory("/home/user/wod/other");
+      const runner = setupSuccessRunner();
+      const deps = createDeps({ processRunner: runner, filesystem: fs });
+      await createInstance(deps, "mysite");
+
+      const rewriteCalls = runner.recordedCalls.filter((c) => c.command.includes("rewrite"));
+      expect(rewriteCalls).toHaveLength(2);
+      expect(rewriteCalls[0].command).toContain("structure");
+      expect(rewriteCalls[0].command).toContain("/%postname%/");
+      expect(rewriteCalls[1].command).toContain("flush");
+      expect(rewriteCalls[1].command).toContain("--hard");
     });
 
     test("returns custom site URL when configured", async () => {

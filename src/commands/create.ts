@@ -189,6 +189,26 @@ export async function createInstance(
   const passwordMatch = wpResult.stdout.match(/^Admin password:\s*(.+)$/m);
   const adminPassword = passwordMatch ? passwordMatch[1].trim() : null;
 
+  // Set up pretty permalinks and write .htaccess
+  const envFlags = wpEnvVars.flatMap((v) => ["--env", v]);
+  const wpCliBase = [
+    "docker",
+    "run",
+    "--rm",
+    ...envFlags,
+    "--volumes-from",
+    containerId,
+    "--network",
+    `container:${containerId}`,
+    "--user",
+    "33:33",
+    "wordpress:cli",
+    "wp",
+  ];
+
+  processRunner.run([...wpCliBase, "rewrite", "structure", "/%postname%/"]);
+  processRunner.run([...wpCliBase, "rewrite", "flush", "--hard"]);
+
   // Restore backup if backupDir was provided
   if (backupDir) {
     const restoreResult = await restoreInstance(
@@ -207,22 +227,6 @@ export async function createInstance(
 
     // Update site URL after restore (unless --keep-urls was specified)
     if (!options?.keepUrls) {
-      const envFlags = wpEnvVars.flatMap((v) => ["--env", v]);
-      const wpCliBase = [
-        "docker",
-        "run",
-        "--rm",
-        ...envFlags,
-        "--volumes-from",
-        containerId,
-        "--network",
-        `container:${containerId}`,
-        "--user",
-        "33:33",
-        "wordpress:cli",
-        "wp",
-      ];
-
       const siteUrlResult = processRunner.run([
         ...wpCliBase,
         "option",
