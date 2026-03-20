@@ -10,6 +10,7 @@ const defaultConfig: CreateConfig = {
   httpPort: 8000,
   httpsPort: 8443,
   siteUrl: "http://127.0.0.1:8000",
+  hostnames: [],
 };
 
 describe("buildTemplateVars", () => {
@@ -76,5 +77,15 @@ describe("buildTemplateVars", () => {
     expect(vars.phpGdLegacy).toBe(false);
     expect(vars.phpMcryptAvailable).toBe(false);
     expect(vars.phpAvifSupported).toBe(true);
+  });
+
+  test("passes through empty hostnames", () => {
+    const vars = buildTemplateVars(defaultConfig);
+    expect(vars.hostnames).toEqual([]);
+  });
+
+  test("passes through hostnames from config", () => {
+    const vars = buildTemplateVars({ ...defaultConfig, hostnames: ["mysite.local", "alt.local"] });
+    expect(vars.hostnames).toEqual(["mysite.local", "alt.local"]);
   });
 });

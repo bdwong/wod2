@@ -90,11 +90,15 @@ export async function createInstance(
   installTemplate(createConfig.templateName, instanceDir, vars, filesystem, templateSource);
 
   // Write .env file for Docker Compose port interpolation
-  const envContent = `HTTP_PORT=${createConfig.httpPort}\nHTTPS_PORT=${createConfig.httpsPort}\n`;
+  let envContent = `HTTP_PORT=${createConfig.httpPort}\nHTTPS_PORT=${createConfig.httpsPort}\n`;
+  if (createConfig.hostnames.length > 0) {
+    envContent += `HOSTNAMES=${createConfig.hostnames.join(",")}\n`;
+  }
   filesystem.writeFile(path.join(instanceDir, ".env"), envContent);
 
   // Generate self-signed TLS certificate
   const certDir = path.join(instanceDir, "wp-php-custom");
+  const sanDns = ["localhost", ...createConfig.hostnames].map((h) => `DNS:${h}`).join(",");
   processRunner.run([
     "openssl",
     "req",
@@ -110,6 +114,8 @@ export async function createInstance(
     path.join(certDir, "cert.pem"),
     "-subj",
     "/CN=localhost",
+    "-addext",
+    `subjectAltName=${sanDns}`,
   ]);
 
   // docker compose up --build -d (--build ensures the custom image is rebuilt)

@@ -25,5 +25,11 @@ services:
       environment:
          WORDPRESS_DB_HOST: db:3306
          WORDPRESS_DB_PASSWORD: wordpress
+{{#if hostnames}}
+      extra_hosts:
+{{#each hostnames}}
+         - "{{this}}:127.0.0.1"
+{{/each}}
+{{/if}}
 volumes:
    db_data:

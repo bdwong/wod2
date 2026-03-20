@@ -28,6 +28,7 @@ const defaultCreateConfig: CreateConfig = {
   httpPort: 8000,
   httpsPort: 8443,
   siteUrl: "https://127.0.0.1:8443",
+  hostnames: [],
 };
 
 function createDeps(overrides?: Partial<CreateDependencies>): CreateDependencies {
@@ -252,6 +253,8 @@ describe("createInstance", () => {
       expect(opensslCall?.command).toContain("365");
       expect(opensslCall?.command).toContain("-subj");
       expect(opensslCall?.command).toContain("/CN=localhost");
+      expect(opensslCall?.command).toContain("-addext");
+      expect(opensslCall?.command).toContain("subjectAltName=DNS:localhost");
       expect(opensslCall?.command).toContain("/home/user/wod/mysite/wp-php-custom/cert.key");
       expect(opensslCall?.command).toContain("/home/user/wod/mysite/wp-php-custom/cert.pem");
     });
@@ -268,6 +271,7 @@ describe("createInstance", () => {
         httpPort: 8000,
         httpsPort: 8443,
         siteUrl: "http://127.0.0.1:9000",
+        hostnames: [],
       };
       const deps = createDeps({
         processRunner: runner,
@@ -644,6 +648,69 @@ describe("createInstance", () => {
         (c) => c.command[0] === "sudo" && c.command[1] === "chown",
       );
       expect(chownCall).toBeUndefined();
+    });
+  });
+
+  describe("hostnames", () => {
+    test("writes HOSTNAMES to .env file when hostnames provided", async () => {
+      const fs = new MockFilesystem();
+      fs.addDirectory("/home/user/wod/other");
+      const runner = setupSuccessRunner();
+      const configWithHostnames: CreateConfig = {
+        ...defaultCreateConfig,
+        hostnames: ["mysite.local", "alt.local"],
+        siteUrl: "https://mysite.local:8443",
+      };
+      const deps = createDeps({
+        processRunner: runner,
+        filesystem: fs,
+        createConfig: configWithHostnames,
+      });
+      await createInstance(deps, "mysite");
+      const envFile = fs.writtenFiles.get("/home/user/wod/mysite/.env");
+      expect(envFile).toContain("HOSTNAMES=mysite.local,alt.local");
+    });
+
+    test("does not write HOSTNAMES to .env when no hostnames", async () => {
+      const fs = new MockFilesystem();
+      fs.addDirectory("/home/user/wod/other");
+      const runner = setupSuccessRunner();
+      const deps = createDeps({ processRunner: runner, filesystem: fs });
+      await createInstance(deps, "mysite");
+      const envFile = fs.writtenFiles.get("/home/user/wod/mysite/.env");
+      expect(envFile).not.toContain("HOSTNAMES");
+    });
+
+    test("generates SSL cert with SANs including hostnames", async () => {
+      const fs = new MockFilesystem();
+      fs.addDirectory("/home/user/wod/other");
+      const runner = setupSuccessRunner();
+      const configWithHostnames: CreateConfig = {
+        ...defaultCreateConfig,
+        hostnames: ["mysite.local", "alt.local"],
+        siteUrl: "https://mysite.local:8443",
+      };
+      const deps = createDeps({
+        processRunner: runner,
+        filesystem: fs,
+        createConfig: configWithHostnames,
+      });
+      await createInstance(deps, "mysite");
+      const opensslCall = runner.recordedCalls.find((c) => c.command[0] === "openssl");
+      expect(opensslCall?.command).toContain("-addext");
+      expect(opensslCall?.command).toContain(
+        "subjectAltName=DNS:localhost,DNS:mysite.local,DNS:alt.local",
+      );
+    });
+
+    test("generates SSL cert with only localhost SAN when no hostnames", async () => {
+      const fs = new MockFilesystem();
+      fs.addDirectory("/home/user/wod/other");
+      const runner = setupSuccessRunner();
+      const deps = createDeps({ processRunner: runner, filesystem: fs });
+      await createInstance(deps, "mysite");
+      const opensslCall = runner.recordedCalls.find((c) => c.command[0] === "openssl");
+      expect(opensslCall?.command).toContain("subjectAltName=DNS:localhost");
     });
   });
 });

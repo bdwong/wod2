@@ -6,11 +6,19 @@ export interface CreateConfig {
   httpPort: number;
   httpsPort: number;
   siteUrl: string;
+  hostnames: string[];
 }
 
 export function resolveCreateConfig(overrides?: Partial<CreateConfig>): CreateConfig {
   const httpPort = Number(overrides?.httpPort ?? process.env.HTTP_PORT ?? 8000);
   const httpsPort = Number(overrides?.httpsPort ?? process.env.HTTPS_PORT ?? 8443);
+  const hostnames =
+    overrides?.hostnames ??
+    (process.env.HOSTNAMES ? process.env.HOSTNAMES.split(",").filter(Boolean) : []);
+  const defaultSiteUrl =
+    hostnames.length > 0
+      ? `https://${hostnames[0]}:${httpsPort}`
+      : `https://127.0.0.1:${httpsPort}`;
   return {
     wordpressVersion: overrides?.wordpressVersion ?? process.env.WORDPRESS_VERSION ?? "6.9.1",
     phpVersion: overrides?.phpVersion ?? process.env.PHP_VERSION ?? "8.5",
@@ -18,7 +26,8 @@ export function resolveCreateConfig(overrides?: Partial<CreateConfig>): CreateCo
     templateName: overrides?.templateName ?? process.env.TEMPLATE_NAME ?? "custom",
     httpPort,
     httpsPort,
-    siteUrl: overrides?.siteUrl ?? process.env.SITEURL ?? `https://127.0.0.1:${httpsPort}`,
+    siteUrl: overrides?.siteUrl ?? process.env.SITEURL ?? defaultSiteUrl,
+    hostnames,
   };
 }
 

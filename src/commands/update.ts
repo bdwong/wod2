@@ -1,3 +1,4 @@
+import path from "node:path";
 import { targetDir, type WodConfig } from "../config/config.ts";
 import type { CreateConfig } from "../config/create-config.ts";
 import type { ProcessRunner } from "../docker/process-runner.ts";
@@ -45,6 +46,28 @@ export function updateInstance(deps: UpdateDependencies, name: string): UpdateRe
   // Re-render template files (overwrites Dockerfile, docker-compose.yml, etc.)
   const vars = buildTemplateVars(createConfig);
   installTemplate(createConfig.templateName, instanceDir, vars, filesystem, templateSource);
+
+  // Regenerate self-signed TLS certificate
+  const certDir = path.join(instanceDir, "wp-php-custom");
+  const sanDns = ["localhost", ...createConfig.hostnames].map((h) => `DNS:${h}`).join(",");
+  processRunner.run([
+    "openssl",
+    "req",
+    "-newkey",
+    "rsa:2048",
+    "-nodes",
+    "-keyout",
+    path.join(certDir, "cert.key"),
+    "-x509",
+    "-days",
+    "365",
+    "-out",
+    path.join(certDir, "cert.pem"),
+    "-subj",
+    "/CN=localhost",
+    "-addext",
+    `subjectAltName=${sanDns}`,
+  ]);
 
   // Rebuild image and start containers
   const upResult = processRunner.run(["docker", "compose", "up", "--build", "-d"], {

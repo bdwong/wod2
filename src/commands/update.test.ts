@@ -14,6 +14,7 @@ const defaultCreateConfig: CreateConfig = {
   httpPort: 8000,
   httpsPort: 8443,
   siteUrl: "https://127.0.0.1:8443",
+  hostnames: [],
 };
 
 function createDeps(overrides?: Partial<UpdateDependencies>): UpdateDependencies {
@@ -29,6 +30,7 @@ function createDeps(overrides?: Partial<UpdateDependencies>): UpdateDependencies
 function setupSuccessRunner(): MockProcessRunner {
   const runner = new MockProcessRunner();
   runner.addResponse(["docker", "compose", "down"], { exitCode: 0 });
+  runner.addResponse(["openssl"], { exitCode: 0 });
   runner.addResponse(["docker", "compose", "up", "--build", "-d"], { exitCode: 0 });
   return runner;
 }
@@ -122,6 +124,7 @@ describe("updateInstance", () => {
     fs.addDirectory("/home/user/wod/mysite");
     const runner = new MockProcessRunner();
     runner.addResponse(["docker", "compose", "down"], { exitCode: 0 });
+    runner.addResponse(["openssl"], { exitCode: 0 });
     runner.addResponse(["docker", "compose", "up", "--build", "-d"], {
       exitCode: 1,
       stderr: "build error",
@@ -167,11 +170,80 @@ describe("updateInstance", () => {
       httpPort: 8000,
       httpsPort: 8443,
       siteUrl: "https://127.0.0.1:8443",
+      hostnames: [],
     };
     const deps = createDeps({ processRunner: runner, filesystem: fs, createConfig: updatedConfig });
     updateInstance(deps, "mysite");
 
     const dockerfile = fs.writtenFiles.get("/home/user/wod/mysite/wp-php-custom/Dockerfile");
     expect(dockerfile).toContain("FROM wordpress:6.7.1-php8.4-apache");
+  });
+
+  test("regenerates SSL certificate", () => {
+    const fs = new MockFilesystem();
+    fs.addDirectory("/home/user/wod/mysite");
+    const runner = setupSuccessRunner();
+    const deps = createDeps({ processRunner: runner, filesystem: fs });
+    updateInstance(deps, "mysite");
+
+    const opensslCall = runner.recordedCalls.find((c) => c.command[0] === "openssl");
+    expect(opensslCall).toBeDefined();
+    expect(opensslCall?.command).toContain("-addext");
+    expect(opensslCall?.command).toContain("subjectAltName=DNS:localhost");
+    expect(opensslCall?.command).toContain("/home/user/wod/mysite/wp-php-custom/cert.key");
+    expect(opensslCall?.command).toContain("/home/user/wod/mysite/wp-php-custom/cert.pem");
+  });
+
+  test("regenerates SSL certificate with hostnames SANs", () => {
+    const fs = new MockFilesystem();
+    fs.addDirectory("/home/user/wod/mysite");
+    const runner = setupSuccessRunner();
+    const configWithHostnames: CreateConfig = {
+      ...defaultCreateConfig,
+      hostnames: ["mysite.local", "alt.local"],
+    };
+    const deps = createDeps({
+      processRunner: runner,
+      filesystem: fs,
+      createConfig: configWithHostnames,
+    });
+    updateInstance(deps, "mysite");
+
+    const opensslCall = runner.recordedCalls.find((c) => c.command[0] === "openssl");
+    expect(opensslCall?.command).toContain(
+      "subjectAltName=DNS:localhost,DNS:mysite.local,DNS:alt.local",
+    );
+  });
+
+  test("renders extra_hosts in docker-compose.yml when hostnames provided", () => {
+    const fs = new MockFilesystem();
+    fs.addDirectory("/home/user/wod/mysite");
+    const runner = setupSuccessRunner();
+    const configWithHostnames: CreateConfig = {
+      ...defaultCreateConfig,
+      hostnames: ["mysite.local", "alt.local"],
+    };
+    const deps = createDeps({
+      processRunner: runner,
+      filesystem: fs,
+      createConfig: configWithHostnames,
+    });
+    updateInstance(deps, "mysite");
+
+    const compose = fs.writtenFiles.get("/home/user/wod/mysite/docker-compose.yml");
+    expect(compose).toContain("extra_hosts:");
+    expect(compose).toContain('"mysite.local:127.0.0.1"');
+    expect(compose).toContain('"alt.local:127.0.0.1"');
+  });
+
+  test("does not render extra_hosts when no hostnames", () => {
+    const fs = new MockFilesystem();
+    fs.addDirectory("/home/user/wod/mysite");
+    const runner = setupSuccessRunner();
+    const deps = createDeps({ processRunner: runner, filesystem: fs });
+    updateInstance(deps, "mysite");
+
+    const compose = fs.writtenFiles.get("/home/user/wod/mysite/docker-compose.yml");
+    expect(compose).not.toContain("extra_hosts:");
   });
 });

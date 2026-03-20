@@ -10,6 +10,7 @@ export interface TemplateVars {
   phpGdLegacy: boolean;
   phpAvifSupported: boolean;
   phpMcryptAvailable: boolean;
+  hostnames: string[];
 }
 
 function parsePhpMajorMinor(phpVersion: string): [number, number] {
@@ -28,5 +29,6 @@ export function buildTemplateVars(config: CreateConfig): TemplateVars {
     phpGdLegacy: major < 7 || (major === 7 && minor < 4),
     phpAvifSupported: major > 8 || (major === 8 && minor >= 1),
     phpMcryptAvailable: major < 7 || (major === 7 && minor < 2),
+    hostnames: config.hostnames,
   };
 }

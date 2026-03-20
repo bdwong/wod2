@@ -10,6 +10,7 @@ describe("resolveCreateConfig", () => {
     "HTTP_PORT",
     "HTTPS_PORT",
     "SITEURL",
+    "HOSTNAMES",
   ] as const;
   const savedEnv: Record<string, string | undefined> = {};
 
@@ -41,6 +42,7 @@ describe("resolveCreateConfig", () => {
       httpPort: 8000,
       httpsPort: 8443,
       siteUrl: "https://127.0.0.1:8443",
+      hostnames: [],
     });
   });
 
@@ -119,6 +121,47 @@ describe("resolveCreateConfig", () => {
     expect(config.wordpressVersion).toBe("6.9.1");
     expect(config.phpVersion).toBe("8.5");
   });
+
+  test("reads HOSTNAMES from env as comma-separated list", () => {
+    clearEnvVars();
+    process.env.HOSTNAMES = "mysite.local,alt.local";
+    const config = resolveCreateConfig();
+    expect(config.hostnames).toEqual(["mysite.local", "alt.local"]);
+  });
+
+  test("derives siteUrl from first hostname when hostnames provided", () => {
+    clearEnvVars();
+    const config = resolveCreateConfig({ hostnames: ["mysite.local", "alt.local"] });
+    expect(config.siteUrl).toBe("https://mysite.local:8443");
+  });
+
+  test("derives siteUrl from first hostname with custom httpsPort", () => {
+    clearEnvVars();
+    const config = resolveCreateConfig({ hostnames: ["mysite.local"], httpsPort: 9443 });
+    expect(config.siteUrl).toBe("https://mysite.local:9443");
+  });
+
+  test("explicit siteUrl takes precedence over hostnames", () => {
+    clearEnvVars();
+    const config = resolveCreateConfig({
+      hostnames: ["mysite.local"],
+      siteUrl: "http://custom:3000",
+    });
+    expect(config.siteUrl).toBe("http://custom:3000");
+  });
+
+  test("hostnames override takes precedence over HOSTNAMES env", () => {
+    clearEnvVars();
+    process.env.HOSTNAMES = "env.local";
+    const config = resolveCreateConfig({ hostnames: ["override.local"] });
+    expect(config.hostnames).toEqual(["override.local"]);
+  });
+
+  test("defaults to empty hostnames when no overrides or env", () => {
+    clearEnvVars();
+    const config = resolveCreateConfig();
+    expect(config.hostnames).toEqual([]);
+  });
 });
 
 describe("wordpressTag", () => {
@@ -131,6 +174,7 @@ describe("wordpressTag", () => {
       httpPort: 8000,
       httpsPort: 8443,
       siteUrl: "",
+      hostnames: [],
     });
     expect(tag).toBe("6.7.1-php8.2-apache");
   });
@@ -144,6 +188,7 @@ describe("wordpressTag", () => {
       httpPort: 8000,
       httpsPort: 8443,
       siteUrl: "",
+      hostnames: [],
     });
     expect(tag).toBe("5.9-php7.4-apache");
   });
@@ -159,6 +204,7 @@ describe("wordpressCustomImageTag", () => {
       httpPort: 8000,
       httpsPort: 8443,
       siteUrl: "",
+      hostnames: [],
     });
     expect(tag).toBe("6.7.1-php8.2-custom");
   });

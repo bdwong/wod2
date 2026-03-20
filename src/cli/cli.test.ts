@@ -46,6 +46,20 @@ describe("createProgram", () => {
     const option = createCommand?.options.find((opt) => opt.long === "--template");
     expect(option).toBeDefined();
   });
+
+  test("create subcommand has --hostnames option", () => {
+    const program = createProgram();
+    const createCommand = program.commands.find((cmd) => cmd.name() === "create");
+    const option = createCommand?.options.find((opt) => opt.long === "--hostnames");
+    expect(option).toBeDefined();
+  });
+
+  test("update subcommand has --hostnames option", () => {
+    const program = createProgram();
+    const updateCommand = program.commands.find((cmd) => cmd.name() === "update");
+    const option = updateCommand?.options.find((opt) => opt.long === "--hostnames");
+    expect(option).toBeDefined();
+  });
 });
 
 describe("validateInstanceName", () => {

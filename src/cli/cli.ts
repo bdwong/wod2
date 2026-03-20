@@ -46,6 +46,10 @@ export function createProgram(): Command {
     .option("--wordpress-version <version>", "WordPress version (default: 6.9.1)")
     .option("--template <name>", "Template name (default: custom)")
     .option("--keep-urls", "Keep original siteurl and home from backup")
+    .option(
+      "--hostnames <hostnames>",
+      "Comma-separated hostnames for SSL cert and container /etc/hosts",
+    )
     .action(
       async (
         name: string,
@@ -57,6 +61,7 @@ export function createProgram(): Command {
           wordpressVersion?: string;
           template?: string;
           keepUrls?: boolean;
+          hostnames?: string;
         },
       ) => {
         const nameError = validateInstanceName(name);
@@ -65,12 +70,13 @@ export function createProgram(): Command {
           process.exit(1);
         }
         const config = resolveConfig();
-        const overrides: Record<string, string | number> = {};
+        const overrides: Record<string, string | number | string[]> = {};
         if (options.httpPort) overrides.httpPort = Number(options.httpPort);
         if (options.httpsPort) overrides.httpsPort = Number(options.httpsPort);
         if (options.phpVersion) overrides.phpVersion = options.phpVersion;
         if (options.wordpressVersion) overrides.wordpressVersion = options.wordpressVersion;
         if (options.template) overrides.templateName = options.template;
+        if (options.hostnames) overrides.hostnames = options.hostnames.split(",").filter(Boolean);
         const createConfig = resolveCreateConfig(overrides);
         const filesystem = new RealFilesystem();
         const templateSource = resolveTemplateSource(
@@ -207,6 +213,10 @@ export function createProgram(): Command {
     .option("--php-version <version>", "PHP version")
     .option("--wordpress-version <version>", "WordPress version")
     .option("--template <name>", "Template name")
+    .option(
+      "--hostnames <hostnames>",
+      "Comma-separated hostnames for SSL cert and container /etc/hosts",
+    )
     .action(
       (
         name: string,
@@ -214,6 +224,7 @@ export function createProgram(): Command {
           phpVersion?: string;
           wordpressVersion?: string;
           template?: string;
+          hostnames?: string;
         },
       ) => {
         const nameError = validateInstanceName(name);
@@ -222,12 +233,28 @@ export function createProgram(): Command {
           process.exit(1);
         }
         const config = resolveConfig();
-        const overrides: Record<string, string | number> = {};
+        const filesystem = new RealFilesystem();
+        const overrides: Record<string, string | number | string[]> = {};
         if (options.phpVersion) overrides.phpVersion = options.phpVersion;
         if (options.wordpressVersion) overrides.wordpressVersion = options.wordpressVersion;
         if (options.template) overrides.templateName = options.template;
+        if (options.hostnames) {
+          overrides.hostnames = options.hostnames.split(",").filter(Boolean);
+        } else {
+          // Preserve existing hostnames from instance .env file
+          const instanceDir = path.join(config.wodHome, name);
+          const envPath = path.join(instanceDir, ".env");
+          try {
+            const envContent = filesystem.readFile(envPath);
+            const hostnamesMatch = envContent.match(/^HOSTNAMES=(.+)$/m);
+            if (hostnamesMatch) {
+              overrides.hostnames = hostnamesMatch[1].split(",").filter(Boolean);
+            }
+          } catch {
+            // No .env file — no hostnames to preserve
+          }
+        }
         const createConfig = resolveCreateConfig(overrides);
-        const filesystem = new RealFilesystem();
         const templateSource = resolveTemplateSource(
           createConfig.templateName,
           filesystem,
@@ -287,7 +314,11 @@ export function createProgram(): Command {
             const envContent = filesystem.readFile(envPath);
             const portMatch = envContent.match(/^HTTPS_PORT=(\d+)$/m);
             const httpsPort = portMatch ? portMatch[1] : "8443";
-            siteUrl = `https://127.0.0.1:${httpsPort}`;
+            const hostnamesMatch = envContent.match(/^HOSTNAMES=(.+)$/m);
+            const firstHostname = hostnamesMatch ? hostnamesMatch[1].split(",")[0] : null;
+            siteUrl = firstHostname
+              ? `https://${firstHostname}:${httpsPort}`
+              : `https://127.0.0.1:${httpsPort}`;
           } catch {
             siteUrl = "https://127.0.0.1:8443";
           }
