@@ -26,6 +26,7 @@ The Windows `PATH` contains spaces and parentheses that break shell expansion in
 - **Module system:** ESM (`"type": "module"`)
 - **Package manager:** Bun (`bun install`, `bun.lock`)
 - **CLI framework:** Commander.js (`commander`) for command dispatch and argument parsing
+- **Config resolution:** appyconfig (`appyconfig`) for unified config from defaults, JSON files, env vars, and CLI args
 - **Linter/Formatter:** Biome (`@biomejs/biome`)
 
 ## Development Workflow
@@ -139,7 +140,7 @@ src/
 
 - The CLI dispatches commands matching the pattern from the original Bash implementation (`wod <command> [args]`)
 - Docker Compose templates are embedded or bundled with the application rather than installed to `/usr/lib/wod/`
-- Configuration follows the same precedence: CLI args > env vars > config file > defaults
+- Configuration follows the precedence: CLI args > env vars > config file (`~/.wod/config.json`) > defaults, resolved via appyconfig
 - wp-cli runs via the `wordpress:cli` Docker image as a sidecar container (not installed on host)
 
 ## External Dependencies

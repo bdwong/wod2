@@ -133,6 +133,25 @@ wod -v create mysite
 wod rm mysite
 ```
 
+### Configuration file
+
+You can set persistent defaults in `~/.wod/config.json` (JSONC supported):
+
+```jsonc
+{
+  // Default PHP version for new instances
+  "phpVersion": "8.4",
+  "httpsPort": 9443,
+  "templateName": "custom"
+}
+```
+
+Configuration precedence (highest to lowest):
+1. CLI arguments (`--php-version 8.3`)
+2. Environment variables (`PHP_VERSION=8.3`)
+3. Config file (`~/.wod/config.json`)
+4. Built-in defaults
+
 ### Custom ports
 
 By default, instances map HTTP to port 8000 and HTTPS to port 8443. The default site URL is `https://127.0.0.1:8443`. Use `--http-port` and `--https-port` to override these on `wod create` or `wod up`:

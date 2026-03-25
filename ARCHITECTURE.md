@@ -292,11 +292,34 @@ dist/wod                             # Single compiled executable (all templates
 > `<WOD_HOME>/.template/`), computed tags are derived internally, and the
 > backup path is passed as a CLI argument only.
 
-### 5.2 Configuration Precedence (Highest to Lowest)
+### 5.2 Configuration File
+
+wod2 supports a JSON configuration file at `~/.wod/config.json` for persistent
+default overrides. The file supports JSONC (JSON with comments). Example:
+
+```jsonc
+{
+  // Default PHP version for new instances
+  "phpVersion": "8.4",
+  "httpsPort": 9443
+}
+```
+
+Any key from the configuration tree can be set in this file (e.g., `wodHome`,
+`wordpressVersion`, `phpVersion`, `mysqlVersion`, `templateName`, `httpPort`,
+`httpsPort`, `hostnames`, `siteUrl`).
+
+### 5.3 Configuration Precedence (Highest to Lowest)
 
 1. **Command-line arguments** (e.g., `wod create mysite --php-version 8.3`)
 2. **Shell environment variables** (e.g., `WORDPRESS_VERSION=5.9 wod create mysite`)
-3. **Built-in defaults** (hardcoded in `resolveCreateConfig()`)
+3. **Config file** (`~/.wod/config.json`)
+4. **Built-in defaults**
+
+Configuration resolution is handled by the `appyconfig` library, which provides
+a `ConfigResolver` with pluggable loaders: `DefaultValueLoader` for built-in
+defaults, `JsonLoader` for the config file, `EnvLoader` for environment
+variables, and `CmdArgsLoader` for Commander.js CLI argument integration.
 
 Each instance also stores its port and hostname configuration in a `.env` file
 within the instance directory. Docker Compose reads this file automatically for
@@ -345,7 +368,7 @@ Commander.js handles:
 - Unknown command errors
 
 Each action handler resolves configuration (via `resolveConfig()` and
-`resolveCreateConfig()`), instantiates dependencies (`BunProcessRunner`,
+`resolveConfigForCreate()`), instantiates dependencies (`BunProcessRunner`,
 `RealFilesystem`), and delegates to the corresponding command module.
 
 ---
@@ -728,10 +751,12 @@ The `RealFilesystem` implementation uses Node.js `fs` functions.
 ### Configuration (`src/config/config.ts`, `src/config/create-config.ts`)
 
 - `resolveConfig(overrides?)`: Returns `WodConfig` with `wodHome` resolved from
-  overrides, `WOD_HOME` env var, or `~/wod` default.
-- `resolveCreateConfig(overrides?)`: Returns `CreateConfig` with version numbers,
+  overrides, `WOD_HOME` env var, config file (`~/.wod/config.json`), or `~/wod`
+  default. Uses `appyconfig` for unified config resolution.
+- `resolveConfigForCreate(overrides?)`: Returns `CreateConfig` with version numbers,
   ports, hostnames, template name, and computed site URL — resolved from
-  overrides, env vars, and defaults.
+  overrides, CLI args (via Commander.js integration), env vars, config file, and
+  defaults. Uses `appyconfig` with `CmdArgsLoader` for automatic CLI arg capture.
 - `targetDir(config, name)`: Returns full path `<wodHome>/<name>`.
 
 ---
@@ -1144,9 +1169,9 @@ These items are documented in `TODO.md` and observed in the code:
 9. **Template documentation:** The template system (multiple PHP version
    templates) is not yet documented in user-facing help.
 
-10. **Config file support:** A user configuration file (`~/.config/wod/wod.conf`)
-    for persistent default overrides is not yet implemented. Currently, defaults
-    can only be overridden via CLI flags or environment variables.
+10. ~~**Config file support:**~~ Implemented. A JSON config file at
+    `~/.wod/config.json` supports persistent default overrides via the
+    `appyconfig` library.
 
 11. **wp CWD auto-detection:** The original Bash `wp` shell function could
     auto-detect the instance name when the current directory was inside

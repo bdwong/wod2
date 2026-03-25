@@ -10,8 +10,8 @@ import { rmInstance } from "../commands/rm.ts";
 import { upInstance } from "../commands/up.ts";
 import { updateInstance } from "../commands/update.ts";
 import { buildWpCommand } from "../commands/wp.ts";
-import { resolveConfig } from "../config/config.ts";
-import { resolveCreateConfig } from "../config/create-config.ts";
+import { config, configResolver } from "../config/config.ts";
+import { resolveConfigForCreate } from "../config/create-config.ts";
 import { BunProcessRunner } from "../docker/process-runner.ts";
 import { resolveTemplateSource } from "../templates/template-resolver.ts";
 import { RealFilesystem } from "../utils/filesystem.ts";
@@ -54,30 +54,14 @@ export function createProgram(): Command {
       async (
         name: string,
         backupDirectory: string | undefined,
-        options: {
-          httpPort?: string;
-          httpsPort?: string;
-          phpVersion?: string;
-          wordpressVersion?: string;
-          template?: string;
-          keepUrls?: boolean;
-          hostnames?: string;
-        },
+        options: { keepUrls?: boolean },
       ) => {
         const nameError = validateInstanceName(name);
         if (nameError) {
           console.error(nameError);
           process.exit(1);
         }
-        const config = resolveConfig();
-        const overrides: Record<string, string | number | string[]> = {};
-        if (options.httpPort) overrides.httpPort = Number(options.httpPort);
-        if (options.httpsPort) overrides.httpsPort = Number(options.httpsPort);
-        if (options.phpVersion) overrides.phpVersion = options.phpVersion;
-        if (options.wordpressVersion) overrides.wordpressVersion = options.wordpressVersion;
-        if (options.template) overrides.templateName = options.template;
-        if (options.hostnames) overrides.hostnames = options.hostnames.split(",").filter(Boolean);
-        const createConfig = resolveCreateConfig(overrides);
+        const createConfig = resolveConfigForCreate();
         const filesystem = new RealFilesystem();
         const templateSource = resolveTemplateSource(
           createConfig.templateName,
@@ -114,7 +98,6 @@ export function createProgram(): Command {
     .command("ls")
     .description("List all instances with status")
     .action(() => {
-      const config = resolveConfig();
       const result = listInstances({
         processRunner: new BunProcessRunner({ verbose: program.opts().verbose }),
         filesystem: new RealFilesystem(),
@@ -136,7 +119,6 @@ export function createProgram(): Command {
         console.error(nameError);
         process.exit(1);
       }
-      const config = resolveConfig();
       const deps = {
         processRunner: new BunProcessRunner({ verbose: program.opts().verbose }),
         filesystem: new RealFilesystem(),
@@ -168,7 +150,6 @@ export function createProgram(): Command {
         console.error(nameError);
         process.exit(1);
       }
-      const config = resolveConfig();
       const deps = {
         processRunner: new BunProcessRunner({ verbose: program.opts().verbose }),
         filesystem: new RealFilesystem(),
@@ -190,7 +171,6 @@ export function createProgram(): Command {
         console.error(nameError);
         process.exit(1);
       }
-      const config = resolveConfig();
       const deps = {
         processRunner: new BunProcessRunner({ verbose: program.opts().verbose }),
         filesystem: new RealFilesystem(),
@@ -217,68 +197,52 @@ export function createProgram(): Command {
       "--hostnames <hostnames>",
       "Comma-separated hostnames for SSL cert and container /etc/hosts",
     )
-    .action(
-      (
-        name: string,
-        options: {
-          phpVersion?: string;
-          wordpressVersion?: string;
-          template?: string;
-          hostnames?: string;
-        },
-      ) => {
-        const nameError = validateInstanceName(name);
-        if (nameError) {
-          console.error(nameError);
-          process.exit(1);
-        }
-        const config = resolveConfig();
-        const filesystem = new RealFilesystem();
-        const overrides: Record<string, string | number | string[]> = {};
-        if (options.phpVersion) overrides.phpVersion = options.phpVersion;
-        if (options.wordpressVersion) overrides.wordpressVersion = options.wordpressVersion;
-        if (options.template) overrides.templateName = options.template;
-        if (options.hostnames) {
-          overrides.hostnames = options.hostnames.split(",").filter(Boolean);
-        } else {
-          // Preserve existing hostnames from instance .env file
-          const instanceDir = path.join(config.wodHome, name);
-          const envPath = path.join(instanceDir, ".env");
-          try {
-            const envContent = filesystem.readFile(envPath);
-            const hostnamesMatch = envContent.match(/^HOSTNAMES=(.+)$/m);
-            if (hostnamesMatch) {
-              overrides.hostnames = hostnamesMatch[1].split(",").filter(Boolean);
-            }
-          } catch {
-            // No .env file — no hostnames to preserve
+    .action((name: string, options: { hostnames?: string }) => {
+      const nameError = validateInstanceName(name);
+      if (nameError) {
+        console.error(nameError);
+        process.exit(1);
+      }
+      const filesystem = new RealFilesystem();
+      // Preserve existing hostnames from instance .env file when not passed via CLI
+      const overrides: Partial<{ hostnames: string[] }> = {};
+      if (!options.hostnames) {
+        const instanceDir = path.join(config.wodHome, name);
+        const envPath = path.join(instanceDir, ".env");
+        try {
+          const envContent = filesystem.readFile(envPath);
+          const hostnamesMatch = envContent.match(/^HOSTNAMES=(.+)$/m);
+          if (hostnamesMatch) {
+            overrides.hostnames = hostnamesMatch[1].split(",").filter(Boolean);
           }
+        } catch {
+          // No .env file — no hostnames to preserve
         }
-        const createConfig = resolveCreateConfig(overrides);
-        const templateSource = resolveTemplateSource(
-          createConfig.templateName,
-          filesystem,
-          config.wodHome,
-        );
-        const deps = {
-          processRunner: new BunProcessRunner({ verbose: program.opts().verbose }),
-          filesystem,
-          config,
-          createConfig,
-          templateSource,
-        };
-        const result = updateInstance(deps, name);
-        if (result.error) {
-          console.error(result.error);
-        }
-        if (result.exitCode !== 0) {
-          process.exit(result.exitCode);
-        }
-        if (result.siteUrl) {
-          console.log(`Website ready at ${result.siteUrl}`);
-        }
-      },
-    );
+      }
+      const createConfig = resolveConfigForCreate(overrides);
+      const templateSource = resolveTemplateSource(
+        createConfig.templateName,
+        filesystem,
+        config.wodHome,
+      );
+      const deps = {
+        processRunner: new BunProcessRunner({ verbose: program.opts().verbose }),
+        filesystem,
+        config,
+        createConfig,
+        templateSource,
+      };
+      const result = updateInstance(deps, name);
+      if (result.error) {
+        console.error(result.error);
+      }
+      if (result.exitCode !== 0) {
+        process.exit(result.exitCode);
+      }
+      if (result.siteUrl) {
+        console.log(`Website ready at ${result.siteUrl}`);
+      }
+    });
 
   program
     .command("restore")
@@ -298,7 +262,6 @@ export function createProgram(): Command {
           console.error(nameError);
           process.exit(1);
         }
-        const config = resolveConfig();
         const filesystem = new RealFilesystem();
         const deps = {
           processRunner: new BunProcessRunner({ verbose: program.opts().verbose }),
@@ -343,7 +306,6 @@ export function createProgram(): Command {
     .command("install")
     .description("Extract bundled templates to ~/wod/.template/ for customization")
     .action(() => {
-      const config = resolveConfig();
       installBundledTemplates(new RealFilesystem(), config.wodHome);
       console.log(`Templates installed to ${config.wodHome}/.template/`);
     });
@@ -379,6 +341,8 @@ export function createProgram(): Command {
       });
       process.exit(proc.exitCode);
     });
+
+  configResolver.resolveCommander(program);
 
   return program;
 }
