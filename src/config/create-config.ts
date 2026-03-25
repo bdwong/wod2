@@ -34,7 +34,7 @@ function postProcessCreateConfig(raw: Record<string, unknown>): CreateConfig {
 
 export function resolveConfigForCreate(overrides?: Partial<CreateConfig>): CreateConfig {
   // Re-resolve to pick up any env var or CLI arg changes
-  const resolved = { ...configResolver.resolveConfig(configTree, loaders) } as Record<
+  const resolved = { ...configResolver.resolveConfig(loaders, configTree) } as Record<
     string,
     unknown
   >;

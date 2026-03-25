@@ -44,8 +44,24 @@ declare module "appyconfig" {
     constructor(filename: string, options?: FileLoaderOptions | boolean);
   }
 
+  class TomlLoader extends ValueLoader {
+    constructor(filename: string, options?: FileLoaderOptions | boolean);
+  }
+
   class ArgvLoader extends ValueLoader {
-    constructor(options?: { aliases?: Record<string, string> });
+    static EXIT: symbol;
+    static THROW: symbol;
+    static IGNORE: symbol;
+    constructor(options?: {
+      aliases?: Record<string, string>;
+      onUnrecognized?: symbol | ((arg: string) => void);
+    });
+    loadValues(): Record<string, unknown>;
+  }
+
+  class UnrecognizedArgumentError extends Error {
+    argument: string;
+    constructor(argument: string);
   }
 
   class NullLoader extends ValueLoader {
@@ -61,12 +77,8 @@ declare module "appyconfig" {
 
     constructor(options?: ConfigResolverOptions);
     resolveConfig(
-      configTree: Record<string, unknown>,
       resolveMaps: ResolveMap[],
-      valueTree?: Record<string, unknown>,
-    ): Record<string, unknown>;
-    resolveConfig(
-      resolveMaps: ResolveMap[],
+      configTree?: Record<string, unknown> | null,
       valueTree?: Record<string, unknown>,
     ): Record<string, unknown>;
     resolveConfig(): Record<string, unknown>;

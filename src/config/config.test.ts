@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { configResolver, configTree, loaders, targetDir } from "./config.ts";
 
 function resolveConfig(): ReturnType<typeof configResolver.resolveConfig> {
-  return configResolver.resolveConfig(configTree, loaders);
+  return configResolver.resolveConfig(loaders, configTree);
 }
 
 describe("resolveConfig", () => {

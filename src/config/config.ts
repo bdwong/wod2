@@ -45,7 +45,7 @@ export const loaders = [
 ];
 
 export const configResolver = new ConfigResolver({ keyCase: null });
-export const config = configResolver.resolveConfig(configTree, loaders) as WodConfig &
+export const config = configResolver.resolveConfig(loaders, configTree) as WodConfig &
   Record<string, unknown>;
 
 export function targetDir(wodConfig: WodConfig, name: string): string {
