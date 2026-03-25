@@ -1,9 +1,6 @@
-import { createRequire } from "node:module";
 import path from "node:path";
 import { Command } from "commander";
-
-const require = createRequire(import.meta.url);
-const { version } = require("../../package.json") as { version: string };
+import { version } from "../../package.json";
 import { createInstance } from "../commands/create.ts";
 import { downInstance } from "../commands/down.ts";
 import { installBundledTemplates } from "../commands/install.ts";
