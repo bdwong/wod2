@@ -1,5 +1,9 @@
+import { createRequire } from "node:module";
 import path from "node:path";
 import { Command } from "commander";
+
+const require = createRequire(import.meta.url);
+const { version } = require("../../package.json") as { version: string };
 import { createInstance } from "../commands/create.ts";
 import { downInstance } from "../commands/down.ts";
 import { installBundledTemplates } from "../commands/install.ts";
@@ -32,7 +36,7 @@ export function createProgram(): Command {
   program
     .name("wod")
     .description("WordPress on Docker — manage disposable WordPress instances")
-    .version("0.1.0")
+    .version(version)
     .option("-v, --verbose", "Show docker commands and their output");
 
   program
