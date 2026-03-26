@@ -32,7 +32,7 @@ export class BunProcessRunner implements ProcessRunner {
     }
     const proc = Bun.spawnSync(command, {
       cwd: options?.cwd,
-      stdin: options?.stdin != null ? new Blob([options.stdin]) : undefined,
+      stdin: options?.stdin != null ? new Blob([options.stdin]) : "inherit",
       stdout: "pipe",
       stderr: this.verbose ? "inherit" : "pipe",
     });

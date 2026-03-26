@@ -218,11 +218,7 @@ export async function restoreInstance(
     path.join(instanceDir, "site", "wp-content"),
   ]);
   if (chownResult.exitCode !== 0) {
-    return {
-      exitCode: chownResult.exitCode,
-      error: `Failed to fix permissions: ${chownResult.stderr}`,
-      warnings,
-    };
+    warnings.push(`Failed to fix permissions: ${chownResult.stderr}`);
   }
 
   // Restore database
@@ -280,10 +276,10 @@ export async function restoreInstance(
     const prefixPattern =
       /\$table_prefix\s*=\s*(?:getenv_docker\(\s*'WORDPRESS_TABLE_PREFIX'\s*,\s*'[^']*'\s*\)|'[^']*')\s*;/;
     const replacement = `$table_prefix = '${tablePrefix}';`;
-    const updatedContent = catResult.stdout.replace(prefixPattern, replacement);
-    if (updatedContent === catResult.stdout) {
+    if (!prefixPattern.test(catResult.stdout)) {
       warnings.push("Could not find table_prefix line in wp-config.php to update");
     }
+    const updatedContent = catResult.stdout.replace(prefixPattern, replacement);
     const teeResult = processRunner.run(["sudo", "tee", wpConfigPath], { stdin: updatedContent });
     if (teeResult.exitCode !== 0) {
       return {
