@@ -1173,6 +1173,15 @@ These items are documented in `TODO.md` and observed in the code:
     `~/.wod/config.json` supports persistent default overrides via the
     `appyconfig` library.
 
+12. **jsonc-parser UMD bundling workaround:** The `appyconfig` library
+    depends on `jsonc-parser`, whose UMD build uses dynamic
+    `require("./impl/...")` calls that Bun's bundler cannot statically
+    resolve, breaking `--compile` builds. A prebuild script
+    (`scripts/patch-jsonc-parser.ts`) patches jsonc-parser's
+    `package.json` to use its ESM entry point instead. TODO: replace
+    `jsonc-parser` with a bundler-friendly JSONC parser (or configure
+    `appyconfig` without it) to eliminate this workaround.
+
 11. **wp CWD auto-detection:** The original Bash `wp` shell function could
     auto-detect the instance name when the current directory was inside
     `WOD_HOME`. In wod2, the instance name is always required as the first
