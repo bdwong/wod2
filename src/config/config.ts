@@ -1,6 +1,6 @@
-import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
+import appyconfig from "appyconfig";
 import type {
   CmdArgsLoader as CmdArgsLoaderType,
   ConfigResolver as ConfigResolverType,
@@ -9,9 +9,8 @@ import type {
   JsonLoader as JsonLoaderType,
 } from "appyconfig";
 
-const require = createRequire(import.meta.url);
 const { ConfigResolver, DefaultValueLoader, EnvLoader, JsonLoader, CmdArgsLoader } =
-  require("appyconfig") as {
+  appyconfig as unknown as {
     ConfigResolver: new (options?: { keyCase?: string | null }) => ConfigResolverType;
     DefaultValueLoader: new () => DefaultValueLoaderType;
     EnvLoader: new () => EnvLoaderType;

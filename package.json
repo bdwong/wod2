@@ -5,7 +5,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "build": "bun build --compile --minify --outfile dist/wod ./index.ts"
+    "prebuild": "bun run scripts/patch-jsonc-parser.ts",
+    "build": "bun build --compile --minify --packages=bundle --outfile dist/wod ./index.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.2",
