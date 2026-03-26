@@ -96,37 +96,40 @@ function createTransformedSqlStream(filePath: string): ReadableStream {
   const gunzip = createGunzip();
   const nodeStream = input.pipe(gunzip);
 
-  let remainder = "";
+  const NEWLINE = 0x0a;
+  const sqlModeBytes = new TextEncoder().encode(`${SQL_MODE_DIRECTIVE}\n`);
+  let remainder = Buffer.alloc(0);
 
   return new ReadableStream({
     start(controller) {
       nodeStream.on("data", (chunk: Buffer) => {
-        remainder += chunk.toString("utf-8");
-        const lines = remainder.split("\n");
-        // Keep the last partial line
-        remainder = lines.pop() ?? "";
-        const result: string[] = [];
-        for (const line of lines) {
-          if (line.startsWith("/*M!")) continue;
-          result.push(line);
-          if (line.startsWith("# -----")) {
-            result.push(SQL_MODE_DIRECTIVE);
+        const buf = remainder.length > 0 ? Buffer.concat([remainder, chunk]) : chunk;
+        let start = 0;
+        for (let i = 0; i < buf.length; i++) {
+          if (buf[i] === NEWLINE) {
+            const line = buf.subarray(start, i + 1); // includes the newline
+            // Only inspect short lines starting with known prefixes (ASCII-safe check)
+            // 0x2f = '/', 0x2a = '*', 0x4d = 'M', 0x21 = '!'
+            if (line.length >= 4 && line[0] === 0x2f && line[1] === 0x2a && line[2] === 0x4d && line[3] === 0x21) {
+              // Skip /*M! MariaDB directives
+            } else {
+              controller.enqueue(line);
+              // 0x23 = '#', 0x20 = ' ', 0x2d = '-'
+              if (line.length >= 7 && line[0] === 0x23 && line[1] === 0x20 && line[2] === 0x2d && line[3] === 0x2d && line[4] === 0x2d && line[5] === 0x2d && line[6] === 0x2d) {
+                controller.enqueue(sqlModeBytes);
+              }
+            }
+            start = i + 1;
           }
         }
-        if (result.length > 0) {
-          controller.enqueue(new TextEncoder().encode(`${result.join("\n")}\n`));
-        }
+        remainder = start < buf.length ? Buffer.from(buf.subarray(start)) : Buffer.alloc(0);
       });
 
       nodeStream.on("end", () => {
-        // Flush the remainder
         if (remainder.length > 0) {
-          if (!remainder.startsWith("/*M!")) {
-            const parts = [remainder];
-            if (remainder.startsWith("# -----")) {
-              parts.push(SQL_MODE_DIRECTIVE);
-            }
-            controller.enqueue(new TextEncoder().encode(parts.join("\n")));
+          // Flush last line (no trailing newline)
+          if (!(remainder.length >= 4 && remainder[0] === 0x2f && remainder[1] === 0x2a && remainder[2] === 0x4d && remainder[3] === 0x21)) {
+            controller.enqueue(remainder);
           }
         }
         controller.close();
